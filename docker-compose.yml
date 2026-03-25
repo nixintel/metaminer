@@ -1,0 +1,139 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=metaminer
+      - POSTGRES_PASSWORD=metaminer
+      - POSTGRES_DB=metaminer
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "metaminer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://metaminer:metaminer@postgres:5432/metaminer
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  worker-bulk:
+    build: .
+    # prefork pool: 4 parallel processes for bulk file extraction + maintenance tasks
+    command: celery -A app.workers.celery_app worker --loglevel=info
+             -Q bulk,maintenance --pool=prefork --concurrency=4
+             --hostname=worker-bulk@%h
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://metaminer:metaminer@postgres:5432/metaminer
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.workers.celery_app", "inspect", "ping", "-t", "5"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 15s
+
+  worker-crawl:
+    build: .
+    # solo pool: one crawl at a time per container — avoids Celery's daemon-process
+    # restriction that prevents Scrapy's subprocess from spawning. Scale this
+    # service (--scale worker-crawl=N) to run N crawls in parallel.
+    command: celery -A app.workers.celery_app worker --loglevel=info
+             -Q crawl --pool=solo
+             --hostname=worker-crawl@%h
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://metaminer:metaminer@postgres:5432/metaminer
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - PYTHONPATH=/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.workers.celery_app", "inspect", "ping", "-t", "5"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 15s
+
+  beat:
+    build: .
+    # Celery beat scheduler — runs the periodic maintenance tasks.
+    # Only ever run one instance of this service to avoid duplicate task dispatch.
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://metaminer:metaminer@postgres:5432/metaminer
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: .
+    command: flask --app frontend.app run --host=0.0.0.0 --port=5000
+    ports:
+      - "5000:5000"
+    environment:
+      - API_BASE_URL=http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
