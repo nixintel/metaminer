@@ -31,6 +31,7 @@ class MetaminerSpider(CrawlSpider):
         full_download: bool = False,
         output_dir: Path | None = None,
         crawl_images: bool = False,
+        result_queue=None,
         *args,
         **kwargs,
     ):
@@ -54,6 +55,7 @@ class MetaminerSpider(CrawlSpider):
         self.failed_urls: list[dict[str, str]] = []
         self.failure_count: int = 0
         self.full_download = full_download
+        self._result_queue = result_queue  # optional streaming queue
 
         # CrawlSpider._compile_rules() reads self.rules inside super().__init__(),
         # so setting the instance attribute here overrides the class-level default.
@@ -207,7 +209,10 @@ class MetaminerSpider(CrawlSpider):
         self.logger.info("File candidate | ext=.%s | url=%s", ext, url)
 
         # Save to temp dir
-        filename = Path(parsed.path).name or "download"
+        raw_name = Path(parsed.path).name or "download"
+        stem = Path(raw_name).stem[:200]  # guard against OS 255-byte filename limit
+        suffix = Path(raw_name).suffix
+        filename = stem + suffix
         dest = self.output_dir / filename
         # Avoid collisions
         counter = 1
@@ -225,6 +230,15 @@ class MetaminerSpider(CrawlSpider):
         etag = response.headers.get("ETag", b"").decode("utf-8", errors="ignore").strip().strip('"') or None
         last_modified = response.headers.get("Last-Modified", b"").decode("utf-8", errors="ignore").strip() or None
         self.response_headers[str(dest)] = {"etag": etag, "last_modified": last_modified}
+
+        if self._result_queue is not None:
+            self._result_queue.put({
+                "type": "file",
+                "path": str(dest),
+                "source_url": url,
+                "etag": etag,
+                "last_modified": last_modified,
+            })
 
         self.logger.info(
             "File saved | url=%s | dest=%s | bytes_written=%d | "
@@ -245,3 +259,10 @@ class MetaminerSpider(CrawlSpider):
             self.failure_count,
             self.start_urls[0],
         )
+        if self._result_queue is not None:
+            self._result_queue.put({
+                "type": "done",
+                "failed_urls": self.failed_urls,
+                "failure_count": self.failure_count,
+                "closed_reason": str(reason),
+            })
