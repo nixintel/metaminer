@@ -27,6 +27,7 @@ class Task(Base):
     crawl_errors: Mapped[str | None] = mapped_column(Text, nullable=True)
     skipped_duplicates: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    crawl_jobdir: Mapped[str | None] = mapped_column(Text, nullable=True)  # Scrapy JOBDIR path for mid-crawl resume
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

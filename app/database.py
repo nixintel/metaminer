@@ -25,6 +25,8 @@ _MIGRATIONS = [
     # Added in v0.2: HTTP change-detection headers for crawl deduplication
     "ALTER TABLE file_submissions ADD COLUMN IF NOT EXISTS http_etag VARCHAR(512)",
     "ALTER TABLE file_submissions ADD COLUMN IF NOT EXISTS http_last_modified VARCHAR(128)",
+    # Added in v0.3: Scrapy JOBDIR path for mid-crawl resume
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS crawl_jobdir TEXT",
 ]
 
 

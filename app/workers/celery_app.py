@@ -27,6 +27,8 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_track_started=True,
+    task_acks_late=True,             # Acknowledge only after completion — re-queues on worker crash
+    task_reject_on_worker_lost=True, # Return message to queue if the worker process is killed
     worker_prefetch_multiplier=1,  # One task at a time per worker slot (long-running tasks)
     worker_heartbeat_timeout=300,  # solo pool blocks heartbeats during crawl; suppress false drift warnings
 

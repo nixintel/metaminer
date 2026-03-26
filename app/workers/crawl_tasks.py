@@ -27,6 +27,7 @@ def _run_scrapy_in_process(
     result_queue: multiprocessing.Queue,
     robotstxt_obey: bool | None = None,
     crawl_images: bool | None = None,
+    jobdir: str | None = None,
 ):
     """Runs inside a child process. Puts result dict into result_queue on completion."""
     try:
@@ -42,6 +43,7 @@ def _run_scrapy_in_process(
         # which is lower than spider custom_settings (30) — middlewares in
         # custom_settings still win — but higher than Scrapy defaults (0).
         process_settings = {
+            **( {"JOBDIR": jobdir} if jobdir else {} ),
             "DEPTH_LIMIT": depth_limit if depth_limit is not None else cfg.CRAWLER_DEPTH_LIMIT,
             "DOWNLOAD_TIMEOUT": cfg.CRAWLER_DOWNLOAD_TIMEOUT,
             "DOWNLOAD_DELAY": cfg.CRAWLER_DOWNLOAD_DELAY,
@@ -102,7 +104,8 @@ def _run_scrapy_in_process(
         result_queue.put({"error": str(e)})
 
 
-@celery_app.task(bind=True, name="metaminer.crawl_task", queue="crawl")
+@celery_app.task(bind=True, name="metaminer.crawl_task", queue="crawl",
+                 acks_late=True, max_retries=3, default_retry_delay=60)
 def run_crawl_task(
     self,
     task_id: int,
@@ -145,7 +148,18 @@ def run_crawl_task(
                     return
                 task.status = "running"
                 task.started_at = datetime.now(timezone.utc)
+                # Persist jobdir path so it survives worker crashes — Scrapy can
+                # resume from this dir if the task is re-queued after a crash.
+                jobdir = str(settings.TEMP_DIR.parent / "crawl_jobs" / f"task_{task_id}")
+                task.crawl_jobdir = jobdir
                 await db.commit()
+
+            Path(jobdir).mkdir(parents=True, exist_ok=True)
+            resuming = any(Path(jobdir).iterdir()) if Path(jobdir).exists() else False
+            logger.info(
+                "%s Scrapy job | task_id=%d | jobdir=%s",
+                "Resuming" if resuming else "Starting", task_id, jobdir,
+            )
 
             # Run Scrapy in an isolated child process.
             # Use 'spawn' (not 'fork') so the child starts with a clean asyncio
@@ -163,7 +177,7 @@ def run_crawl_task(
 
             proc = ctx.Process(
                 target=_run_scrapy_in_process,
-                args=(url, allowed_file_types, depth_limit, full_download, output_dir, result_queue, robotstxt_obey, crawl_images),
+                args=(url, allowed_file_types, depth_limit, full_download, output_dir, result_queue, robotstxt_obey, crawl_images, jobdir),
                 daemon=False,
             )
             proc.start()
@@ -200,8 +214,10 @@ def run_crawl_task(
                     task = await db.get(Task, task_id)
                     if task:
                         task.status = "cancelled"
+                        task.crawl_jobdir = None
                         task.completed_at = datetime.now(timezone.utc)
                         await db.commit()
+                import shutil; shutil.rmtree(jobdir, ignore_errors=True)
                 return
 
             # Queue.empty() is documented as unreliable; use get() with a short
@@ -279,7 +295,13 @@ def run_crawl_task(
                     if crawl_result.get("failed_urls"):
                         previous = task.crawl_errors or ""
                         task.crawl_errors = ", ".join(filter(None, [previous, str(crawl_result.get("failed_urls"))]))
+                    if errors == 0:
+                        # Crawl completed successfully — jobdir no longer needed
+                        task.crawl_jobdir = None
                     await db.commit()
+
+            if errors == 0:
+                import shutil; shutil.rmtree(jobdir, ignore_errors=True)
         finally:
             clear_cancel_flag(task_id)
             await task_engine.dispose()
