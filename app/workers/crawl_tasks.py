@@ -28,6 +28,7 @@ def _run_scrapy_in_process(
     robotstxt_obey: bool | None = None,
     crawl_images: bool | None = None,
     jobdir: str | None = None,
+    allow_cross_domain: bool | None = None,
 ):
     """Runs inside a child process. Puts result dict into result_queue on completion."""
     try:
@@ -91,6 +92,7 @@ def _run_scrapy_in_process(
 
         process = CrawlerProcess(settings=process_settings)
         follow_images = crawl_images if crawl_images is not None else cfg.CRAWLER_FOLLOW_IMAGE_TAGS
+        cross_domain = allow_cross_domain if allow_cross_domain is not None else cfg.CRAWLER_ALLOW_CROSS_DOMAIN
         process.crawl(
             _TrackingSpider,
             start_url=start_url,
@@ -98,6 +100,7 @@ def _run_scrapy_in_process(
             full_download=full_download,
             output_dir=Path(output_dir),
             crawl_images=follow_images,
+            allow_cross_domain=cross_domain,
         )
         process.start()
     except Exception as e:
@@ -118,6 +121,7 @@ def run_crawl_task(
     deduplicate: bool = True,
     robotstxt_obey: bool | None = None,
     crawl_images: bool | None = None,
+    allow_cross_domain: bool | None = None,
 ):
     from config import settings
 
@@ -177,7 +181,7 @@ def run_crawl_task(
 
             proc = ctx.Process(
                 target=_run_scrapy_in_process,
-                args=(url, allowed_file_types, depth_limit, full_download, output_dir, result_queue, robotstxt_obey, crawl_images, jobdir),
+                args=(url, allowed_file_types, depth_limit, full_download, output_dir, result_queue, robotstxt_obey, crawl_images, jobdir, allow_cross_domain),
                 daemon=False,
             )
             proc.start()

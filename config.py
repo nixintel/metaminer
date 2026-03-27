@@ -137,6 +137,10 @@ class Settings(BaseSettings):
     # on every HTML page (thumbnails, icons, etc.) which increases request volume.
     CRAWLER_FOLLOW_IMAGE_TAGS: bool = False
 
+    # Allow the crawler to follow links to domains other than the start URL domain.
+    # Disabled by default to keep crawls scoped to the target site.
+    CRAWLER_ALLOW_CROSS_DOMAIN: bool = False
+
     # Partial download: fetch only first N MB to extract header metadata (faster)
     CRAWLER_PARTIAL_DOWNLOAD_ENABLED: bool = True
     CRAWLER_PARTIAL_DOWNLOAD_SIZE_MB: int = 10

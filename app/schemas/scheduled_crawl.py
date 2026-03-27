@@ -13,6 +13,7 @@ class ScheduledCrawlCreate(BaseModel):
     retain_files: bool = False
     crawl_images: bool = False
     robotstxt_obey: bool | None = None
+    allow_cross_domain: bool = False
 
     @field_validator("frequency_seconds")
     @classmethod
@@ -31,6 +32,7 @@ class ScheduledCrawlUpdate(BaseModel):
     retain_files: bool | None = None
     crawl_images: bool | None = None
     robotstxt_obey: bool | None = None
+    allow_cross_domain: bool | None = None
 
     @field_validator("frequency_seconds")
     @classmethod
@@ -52,6 +54,7 @@ class ScheduledCrawlResponse(BaseModel):
     retain_files: bool
     crawl_images: bool
     robotstxt_obey: bool | None
+    allow_cross_domain: bool
     last_run_at: datetime | None
     next_run_at: datetime
     created_at: datetime

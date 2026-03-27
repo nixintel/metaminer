@@ -30,6 +30,7 @@ async def submit_crawl(body: CrawlSubmit, db: AsyncSession = Depends(get_db)):
             "deduplicate": body.deduplicate,
             "robotstxt_obey": body.robotstxt_obey,
             "crawl_images": body.crawl_images,
+            "allow_cross_domain": body.allow_cross_domain,
         }),
     )
     db.add(task)
@@ -47,6 +48,7 @@ async def submit_crawl(body: CrawlSubmit, db: AsyncSession = Depends(get_db)):
         body.deduplicate,
         body.robotstxt_obey,
         body.crawl_images,
+        body.allow_cross_domain,
     )
     task.celery_task_id = celery_result.id
     await db.flush()

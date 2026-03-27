@@ -27,6 +27,8 @@ _MIGRATIONS = [
     "ALTER TABLE file_submissions ADD COLUMN IF NOT EXISTS http_last_modified VARCHAR(128)",
     # Added in v0.3: Scrapy JOBDIR path for mid-crawl resume
     "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS crawl_jobdir TEXT",
+    # Added in v0.4: per-crawl cross-domain link following toggle
+    "ALTER TABLE scheduled_crawls ADD COLUMN IF NOT EXISTS allow_cross_domain BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 

@@ -34,6 +34,7 @@ async def create_scheduled_crawl(
         retain_files=body.retain_files,
         crawl_images=body.crawl_images,
         robotstxt_obey=body.robotstxt_obey,
+        allow_cross_domain=body.allow_cross_domain,
         # next_run_at defaults to now, so it is picked up on the next dispatch tick
         next_run_at=datetime.now(timezone.utc),
     )

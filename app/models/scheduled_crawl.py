@@ -26,6 +26,7 @@ class ScheduledCrawl(Base):
     retain_files: Mapped[bool] = mapped_column(Boolean, default=False)
     crawl_images: Mapped[bool] = mapped_column(Boolean, default=False)
     robotstxt_obey: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    allow_cross_domain: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Schedule state
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

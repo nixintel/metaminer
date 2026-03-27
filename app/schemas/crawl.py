@@ -9,5 +9,6 @@ class CrawlSubmit(BaseModel):
     full_download: bool = False
     retain_files: bool = False
     deduplicate: bool = True
-    robotstxt_obey: bool | None = None  # None = use CRAWLER_ROBOTSTXT_OBEY from config
-    crawl_images: bool | None = None    # None = use CRAWLER_FOLLOW_IMAGE_TAGS from config
+    robotstxt_obey: bool | None = None      # None = use CRAWLER_ROBOTSTXT_OBEY from config
+    crawl_images: bool | None = None        # None = use CRAWLER_FOLLOW_IMAGE_TAGS from config
+    allow_cross_domain: bool | None = None  # None = use CRAWLER_ALLOW_CROSS_DOMAIN from config

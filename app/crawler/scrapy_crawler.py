@@ -31,6 +31,7 @@ class MetaminerSpider(CrawlSpider):
         full_download: bool = False,
         output_dir: Path | None = None,
         crawl_images: bool = False,
+        allow_cross_domain: bool = False,
         result_queue=None,
         *args,
         **kwargs,
@@ -39,10 +40,12 @@ class MetaminerSpider(CrawlSpider):
         parsed = urlparse(start_url)
         self.start_domain = parsed.netloc
 
-        # Do NOT set allowed_domains — Scrapy's OffsiteMiddleware would silently
-        # drop requests to any other domain, including CDN/asset hosts where files
-        # are typically served (e.g. assets.publishing.service.gov.uk for gov.uk).
-        # Scope is controlled by DEPTH_LIMIT instead (passed via CrawlerProcess).
+        # When allow_cross_domain=False (default), restrict the crawl to the
+        # start URL's domain via Scrapy's OffsiteMiddleware.  When True, leave
+        # allowed_domains unset so off-site links (CDN hosts, asset servers, etc.)
+        # are followed freely.
+        if not allow_cross_domain:
+            self.allowed_domains = [parsed.netloc]
 
         self.target_extensions = set(
             e.lower().lstrip(".")
@@ -127,13 +130,15 @@ class MetaminerSpider(CrawlSpider):
         # crawler settings object so the log reflects what Scrapy is actually using.
         self.logger.info(
             "Crawl starting | url=%s | start_domain=%s | depth_limit=%s | "
-            "file_types=%s | partial_download=%s | autothrottle=%s",
+            "file_types=%s | partial_download=%s | autothrottle=%s | "
+            "allow_cross_domain=%s",
             self.start_urls[0],
             self.start_domain,
             self.crawler.settings.getint("DEPTH_LIMIT"),
             sorted(self.target_extensions),
             self.crawler.settings.getbool("PARTIAL_DOWNLOAD_ENABLED"),
             self.crawler.settings.getbool("AUTOTHROTTLE_ENABLED"),
+            not bool(getattr(self, "allowed_domains", None)),
         )
         yield from super().start_requests()
 

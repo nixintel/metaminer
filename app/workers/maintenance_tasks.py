@@ -58,6 +58,7 @@ def dispatch_scheduled_crawls():
                             "retain_files": schedule.retain_files,
                             "crawl_images": schedule.crawl_images,
                             "robotstxt_obey": schedule.robotstxt_obey,
+                            "allow_cross_domain": schedule.allow_cross_domain,
                             "scheduled_crawl_id": schedule.id,
                         }),
                     )
@@ -75,6 +76,7 @@ def dispatch_scheduled_crawls():
                         True,  # deduplicate — always True for scheduled crawls
                         schedule.robotstxt_obey,
                         schedule.crawl_images,
+                        schedule.allow_cross_domain,
                     )
                     task.celery_task_id = celery_result.id
                     await db.commit()
