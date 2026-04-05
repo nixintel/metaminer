@@ -89,6 +89,7 @@ class TestRunScrapyInProcessJobdir:
         mock_cfg.CRAWLER_PARTIAL_DOWNLOAD_SIZE_MB = 10
         mock_cfg.CRAWLER_PROXY = None
         mock_cfg.CRAWLER_FOLLOW_IMAGE_TAGS = False
+        mock_cfg.CRAWLER_ALLOW_CROSS_DOMAIN = False
 
         with (
             patch.dict("sys.modules", {
@@ -147,6 +148,7 @@ class TestRunScrapyInProcessJobdir:
         mock_cfg.CRAWLER_DEPTH_LIMIT = 2
         mock_cfg.CRAWLER_PROXY = None
         mock_cfg.CRAWLER_FOLLOW_IMAGE_TAGS = False
+        mock_cfg.CRAWLER_ALLOW_CROSS_DOMAIN = False
 
         with (
             patch.dict("sys.modules", {

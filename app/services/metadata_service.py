@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -135,7 +136,7 @@ async def process_single_file(
         submission.id, path.name, file_hash[:12],
     )
 
-    exif_version = get_exiftool_version()
+    exif_version = await asyncio.to_thread(get_exiftool_version)
     records_created = 0
 
     if use_pdf_mode and is_pdf(path):
@@ -143,7 +144,7 @@ async def process_single_file(
             "PDF detected | submission_id=%d | file=%s | extracting original + rollback variants",
             submission.id, path.name,
         )
-        original_meta, rollback_meta = extract_pdf_both_variants(path)
+        original_meta, rollback_meta = await asyncio.to_thread(extract_pdf_both_variants, path)
         promoted = _extract_promoted(original_meta)
         submission.mime_type = promoted.get("mime_type")
 
@@ -179,7 +180,7 @@ async def process_single_file(
             submission.id, path.name, use_pdf_mode,
         )
         try:
-            meta = extract_metadata(path)
+            meta = await asyncio.to_thread(extract_metadata, path)
         except ExiftoolError as e:
             logger.error(
                 "exiftool extraction failed | submission_id=%d | file=%s | error=%s",

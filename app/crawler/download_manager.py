@@ -1,6 +1,9 @@
 """
-Runs after a Scrapy crawl completes. Processes each downloaded file
-through metadata_service and optionally retains or deletes it.
+Processes files downloaded by a Scrapy crawl through metadata_service
+and optionally retains or deletes them.
+
+process_one_crawl_file() — called per-file as the crawl streams results.
+process_downloaded_files() — legacy batch wrapper kept for compatibility.
 """
 import logging
 from pathlib import Path
@@ -77,6 +80,88 @@ async def _should_skip_crawl_file(
         return matched
 
     return False  # Cannot determine → process to be safe
+
+
+async def process_one_crawl_file(
+    file_path: str,
+    source_url: str | None,
+    etag: str | None,
+    last_modified: str | None,
+    project_id: int,
+    task_id: int,
+    retain_files: bool,
+    pdf_mode: bool | None,
+    deduplicate: bool,
+    session_factory,
+) -> str:
+    """
+    Process a single file received from the streaming crawl queue.
+    Returns "processed", "skipped", or "error".
+    """
+    from app.utils.helpers import sha256_file
+
+    filename = Path(file_path).name
+    file_exists = Path(file_path).exists()
+    file_hash = sha256_file(file_path) if file_exists else None
+
+    logger.info(
+        "File received | file=%s | source_url=%s | exists=%s | etag=%s | last_modified=%s",
+        filename, source_url, file_exists,
+        etag or "<none>", last_modified or "<none>",
+    )
+
+    if not file_exists:
+        logger.warning(
+            "File missing on disk, skipping | file=%s | source_url=%s",
+            filename, source_url,
+        )
+        return "error"
+
+    async with session_factory() as db:
+        should_skip = await _should_skip_crawl_file(
+            db, project_id, source_url, file_hash, etag, last_modified, deduplicate
+        )
+    if should_skip:
+        logger.info("Skipped (unchanged) | file=%s | source_url=%s", filename, source_url)
+        if not retain_files:
+            delete_file_safe(file_path)
+        return "skipped"
+
+    logger.info("Extracting metadata | file=%s | source_url=%s", filename, source_url)
+
+    try:
+        async with session_factory() as db:
+            result = await process_single_file(
+                db=db,
+                project_id=project_id,
+                file_path=file_path,
+                retain_file_opt=retain_files,
+                pdf_mode=pdf_mode,
+                task_id=task_id,
+                submission_mode="crawl",
+                source_url=source_url,
+                http_etag=etag,
+                http_last_modified=last_modified,
+            )
+            await db.commit()
+        logger.info(
+            "Metadata saved | file=%s | submission_id=%s | records=%d | source_url=%s",
+            filename,
+            result.get("submission_id"),
+            result.get("records_created", 0),
+            source_url,
+        )
+        return "processed"
+    except Exception as e:
+        logger.error(
+            "Metadata extraction failed | file=%s | source_url=%s | error=%s",
+            filename, source_url, e,
+            exc_info=True,
+        )
+        return "error"
+    finally:
+        if not retain_files:
+            delete_file_safe(file_path)
 
 
 async def process_downloaded_files(

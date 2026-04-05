@@ -75,6 +75,7 @@ class MetaminerSpider(CrawlSpider):
                     follow=True,
                     errback="handle_error",
                     process_links="log_discovered_file_links",
+                    process_request="_prioritize_file_requests",
                 ),
             )
 
@@ -90,14 +91,39 @@ class MetaminerSpider(CrawlSpider):
             follow=True,
             errback="handle_error",
             process_links="log_discovered_file_links",
+            process_request="_prioritize_file_requests",
         ),
     )
+
+    def _prioritize_file_requests(self, request, response):
+        """
+        Assign higher scheduler priority to file downloads vs HTML navigation.
+        Also logs whether each file request will actually be downloaded or
+        dropped by Scrapy's depth limit.
+        """
+        ext = Path(urlparse(request.url).path.lower()).suffix.lstrip(".")
+        if ext in self.target_extensions:
+            depth = request.meta.get("depth", 0)
+            depth_limit = self.crawler.settings.getint("DEPTH_LIMIT", 0)
+            if depth_limit and depth > depth_limit:
+                self.logger.info(
+                    "File outside depth limit - will NOT be downloaded | "
+                    "ext=.%s | depth=%d | limit=%d | url=%s",
+                    ext, depth, depth_limit, request.url,
+                )
+            else:
+                self.logger.info(
+                    "File scheduled for download | ext=.%s | depth=%d | url=%s",
+                    ext, depth, request.url,
+                )
+            return request.replace(priority=10)
+        return request
 
     def log_discovered_file_links(self, links):
         """
         Called by the Rule once per page response, with all links extracted from that page.
-        Logs every target-extension file URL found, including its domain (cross-domain links
-        are flagged explicitly since they were silently dropped in older versions).
+        Logs a summary count of target-extension files found; per-file depth status is
+        logged in _prioritize_file_requests once the request depth is known.
         """
         file_links = [
             link for link in links
@@ -106,26 +132,15 @@ class MetaminerSpider(CrawlSpider):
 
         if file_links:
             self.logger.info(
-                "Page scan found %d target file(s) | queuing downloads:",
+                "Page scan found %d target file link(s) | per-file download status logged below",
                 len(file_links),
             )
-            for link in file_links:
-                ext = Path(urlparse(link.url).path.lower()).suffix.lstrip(".")
-                link_domain = urlparse(link.url).netloc
-                cross_domain = link_domain != self.start_domain
-                self.logger.info(
-                    "  -> File queued | ext=.%s | cross-domain=%s | url=%s | text=%s",
-                    ext,
-                    cross_domain,
-                    link.url,
-                    link.text.strip() if link.text else "<no text>",
-                )
         else:
             self.logger.info("Page scan found 0 target files on this page")
 
         return links
 
-    def start_requests(self):
+    async def start(self):
         # Settings are applied via CrawlerProcess; read them back from the
         # crawler settings object so the log reflects what Scrapy is actually using.
         self.logger.info(
@@ -140,7 +155,8 @@ class MetaminerSpider(CrawlSpider):
             self.crawler.settings.getbool("AUTOTHROTTLE_ENABLED"),
             not bool(getattr(self, "allowed_domains", None)),
         )
-        yield from super().start_requests()
+        async for req in super().start():
+            yield req
 
     def parse_start_url(self, response):
         content_type = (

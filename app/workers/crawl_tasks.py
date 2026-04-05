@@ -80,15 +80,7 @@ def _run_scrapy_in_process(
 
         class _TrackingSpider(MetaminerSpider):
             def closed(self, reason):
-                super().closed(reason)  # logs the crawl summary
-                result_queue.put({
-                    "downloaded_files": self.downloaded_files,
-                    "source_urls": self.source_urls,
-                    "response_headers": self.response_headers,
-                    "failed_urls": self.failed_urls,
-                    "failure_count": self.failure_count,
-                    "closed_reason": str(reason),
-                })
+                super().closed(reason)  # emits {"type":"done",...} on self._result_queue
 
         process = CrawlerProcess(settings=process_settings)
         follow_images = crawl_images if crawl_images is not None else cfg.CRAWLER_FOLLOW_IMAGE_TAGS
@@ -101,6 +93,7 @@ def _run_scrapy_in_process(
             output_dir=Path(output_dir),
             crawl_images=follow_images,
             allow_cross_domain=cross_domain,
+            result_queue=result_queue,
         )
         process.start()
     except Exception as e:
@@ -126,9 +119,10 @@ def run_crawl_task(
     from config import settings
 
     async def _run():
+        import queue as _queue
         from app.database import make_task_session_factory
         from app.models.task import Task
-        from app.crawler.download_manager import process_downloaded_files
+        from app.crawler.download_manager import process_one_crawl_file
 
         logger.info(
             "Crawl task starting | task_id=%d | url=%s | depth_limit=%s | "
@@ -186,10 +180,67 @@ def run_crawl_task(
             )
             proc.start()
 
-            # Poll for cancellation while the subprocess runs.
-            # proc.join() would block indefinitely with no way to interrupt.
+            # Stream results from the queue as files are downloaded.
+            # Per-file events ("type":"file") are processed immediately;
+            # the "done" event signals the crawl is complete.
+            files_seen = 0
+            processed = 0
+            errors = 0
+            skipped_duplicates = 0
+            crawl_done = False
+            crawl_done_msg: dict = {}
             cancelled = False
-            while proc.is_alive():
+
+            async def _handle_file_msg(msg: dict):
+                nonlocal processed, errors, skipped_duplicates, files_seen
+                files_seen += 1
+                outcome = await process_one_crawl_file(
+                    file_path=msg["path"],
+                    source_url=msg["source_url"],
+                    etag=msg["etag"],
+                    last_modified=msg["last_modified"],
+                    project_id=project_id,
+                    task_id=task_id,
+                    retain_files=retain_files,
+                    pdf_mode=None,
+                    deduplicate=deduplicate,
+                    session_factory=SessionLocal,
+                )
+                if outcome == "processed":
+                    processed += 1
+                elif outcome == "skipped":
+                    skipped_duplicates += 1
+                else:
+                    errors += 1
+
+                # Write incremental progress every 10 files
+                if (processed + skipped_duplicates) % 10 == 0:
+                    async with SessionLocal() as db:
+                        t = await db.get(Task, task_id)
+                        if t:
+                            t.files_processed = processed
+                            t.skipped_duplicates = skipped_duplicates
+                            await db.commit()
+
+            while True:
+                # Drain all messages currently available without blocking
+                while True:
+                    try:
+                        msg = result_queue.get_nowait()
+                    except _queue.Empty:
+                        break
+
+                    if msg.get("type") == "file":
+                        await _handle_file_msg(msg)
+                    elif msg.get("type") == "done":
+                        crawl_done = True
+                        crawl_done_msg = msg
+                    elif "error" in msg:
+                        raise RuntimeError(f"Scrapy process error: {msg['error']}")
+
+                if crawl_done and not proc.is_alive():
+                    break
+
                 if check_cancel_flag(task_id):
                     logger.info(
                         "Cancellation requested | task_id=%d | terminating subprocess",
@@ -206,6 +257,7 @@ def run_crawl_task(
                         proc.join(timeout=5)
                     cancelled = True
                     break
+
                 time.sleep(1)
 
             logger.info(
@@ -224,81 +276,59 @@ def run_crawl_task(
                 import shutil; shutil.rmtree(jobdir, ignore_errors=True)
                 return
 
-            # Queue.empty() is documented as unreliable; use get() with a short
-            # timeout after join() — the child has already exited so data is there.
-            try:
-                crawl_result = result_queue.get(timeout=5)
-            except Exception:
-                crawl_result = {}
+            # Final drain: process any messages that arrived between the last
+            # get_nowait() call and the subprocess exit.
+            while True:
+                try:
+                    msg = result_queue.get_nowait()
+                except _queue.Empty:
+                    break
+                if msg.get("type") == "file":
+                    await _handle_file_msg(msg)
+                elif msg.get("type") == "done":
+                    crawl_done = True
+                    crawl_done_msg = msg
+                elif "error" in msg:
+                    raise RuntimeError(f"Scrapy process error: {msg['error']}")
 
-            if "error" in crawl_result:
-                raise RuntimeError(f"Scrapy process error: {crawl_result['error']}")
-
-            downloaded_files: list[str] = crawl_result.get("downloaded_files", [])
-            source_urls: dict[str, str] = crawl_result.get("source_urls", {})
-            response_headers: dict[str, dict] = crawl_result.get("response_headers", {})
-            failure_count = crawl_result.get("failure_count", 0)
+            failure_count = crawl_done_msg.get("failure_count", 0)
 
             logger.info(
-                "Scrapy crawl results | task_id=%d | url=%s | "
-                "files_downloaded=%d | request_failures=%d | closed_reason=%s",
-                task_id, url, len(downloaded_files),
-                failure_count, crawl_result.get("closed_reason"),
+                "Scrapy crawl complete | task_id=%d | url=%s | "
+                "files_seen=%d | request_failures=%d | closed_reason=%s",
+                task_id, url, files_seen,
+                failure_count, crawl_done_msg.get("closed_reason"),
             )
 
-            if crawl_result.get("failed_urls"):
-                for item in crawl_result["failed_urls"]:
+            if crawl_done_msg.get("failed_urls"):
+                for item in crawl_done_msg["failed_urls"]:
                     logger.warning(
                         "Crawl request failure | task_id=%d | url=%s | error=%s",
                         task_id, item.get("url"), item.get("error"),
                     )
 
-            async with SessionLocal() as db:
-                task = await db.get(Task, task_id)
-                if task:
-                    task.files_found = len(downloaded_files)
-                    task.crawl_failures = failure_count
-                    if crawl_result.get("failed_urls"):
-                        task.crawl_errors = str(crawl_result.get("failed_urls"))
-                    await db.commit()
-
-            logger.info(
-                "Starting metadata extraction phase | task_id=%d | files=%d",
-                task_id, len(downloaded_files),
-            )
-
-            processed, errors, skipped_duplicates = await process_downloaded_files(
-                downloaded_files=downloaded_files,
-                source_urls=source_urls,
-                response_headers=response_headers,
-                project_id=project_id,
-                task_id=task_id,
-                retain_files=retain_files,
-                pdf_mode=None,
-                deduplicate=deduplicate,
-                session_factory=SessionLocal,
-            )
-
             final_status = "completed" if errors == 0 else "completed_with_errors"
             logger.info(
                 "Crawl task complete | task_id=%d | url=%s | status=%s | "
-                "downloaded=%d | processed=%d | skipped=%d | errors=%d",
+                "files_seen=%d | processed=%d | skipped=%d | errors=%d",
                 task_id, url, final_status,
-                len(downloaded_files), processed, skipped_duplicates, errors,
+                files_seen, processed, skipped_duplicates, errors,
             )
 
             async with SessionLocal() as db:
                 task = await db.get(Task, task_id)
                 if task:
                     task.status = "completed" if errors == 0 else "failed"
+                    task.files_found = files_seen
                     task.files_processed = processed
                     task.skipped_duplicates = skipped_duplicates
+                    task.crawl_failures = failure_count
                     task.completed_at = datetime.now(timezone.utc)
                     if errors:
                         task.error_message = f"{errors} file(s) failed to process"
-                    if crawl_result.get("failed_urls"):
+                    if crawl_done_msg.get("failed_urls"):
                         previous = task.crawl_errors or ""
-                        task.crawl_errors = ", ".join(filter(None, [previous, str(crawl_result.get("failed_urls"))]))
+                        task.crawl_errors = ", ".join(filter(None, [previous, str(crawl_done_msg.get("failed_urls"))]))
                     if errors == 0:
                         # Crawl completed successfully — jobdir no longer needed
                         task.crawl_jobdir = None

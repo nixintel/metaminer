@@ -7,8 +7,11 @@ and is significantly faster than downloading complete files.
 
 Set PARTIAL_DOWNLOAD_ENABLED=False in Scrapy settings to disable.
 """
-from scrapy.exceptions import IgnoreRequest
+import logging
+
 from scrapy.http import Response
+
+logger = logging.getLogger("metaminer.middlewares")
 
 
 class PartialDownloadMiddleware:
@@ -22,7 +25,7 @@ class PartialDownloadMiddleware:
         enabled = crawler.settings.getbool("PARTIAL_DOWNLOAD_ENABLED", True)
         return cls(max_bytes=int(max_mb * 1024 * 1024), enabled=enabled)
 
-    def process_response(self, request, response, spider):
+    def process_response(self, request, response):
         if not self.enabled:
             return response
 
@@ -32,7 +35,7 @@ class PartialDownloadMiddleware:
             return response
 
         if len(response.body) > self.max_bytes:
-            spider.logger.info(
+            logger.info(
                 "Partial download applied | url=%s | received=%d bytes | "
                 "truncated_to=%d bytes (%.1f MB limit)",
                 request.url,
@@ -43,7 +46,7 @@ class PartialDownloadMiddleware:
             truncated_body = response.body[: self.max_bytes]
             return response.replace(body=truncated_body)
 
-        spider.logger.info(
+        logger.info(
             "Full file received | url=%s | size=%d bytes",
             request.url,
             len(response.body),
@@ -54,12 +57,12 @@ class PartialDownloadMiddleware:
 class ProxyFallbackMiddleware:
     """Fallback for proxy errors: retry once without proxy."""
 
-    def process_exception(self, request, exception, spider):
+    def process_exception(self, request, exception):
         proxy = request.meta.get("proxy")
         if not proxy:
             return None
 
-        spider.logger.warning(
+        logger.warning(
             "Proxy error for %s (%s). Retrying without proxy.",
             request.url,
             exception,

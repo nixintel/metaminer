@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(docker context:*)",
+      "Bash(docker --context default ps --format \"table {{.Names}}\\\\t{{.Status}}\")",
+      "Bash(docker --context default logs --tail=500 metaminer-worker-crawl-1)"
+    ]
+  }
+}
