@@ -57,7 +57,8 @@ class Settings(BaseSettings):
     # --- Redis / Celery ---
     REDIS_URL: str = "redis://redis:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://redis:6379/1"
-    CELERY_TASK_CONCURRENCY: int = 4
+    CELERY_TASK_CONCURRENCY: int = 4  # prefork processes in worker-bulk
+    CRAWL_WORKER_COUNT: int = 1       # number of worker-crawl containers (docker-compose deploy.replicas)
 
     # --- File Retention ---
     RETAIN_FILES: bool = False

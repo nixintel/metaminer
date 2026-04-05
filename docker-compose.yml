@@ -39,9 +39,10 @@ services:
 
   worker-bulk:
     build: .
-    # prefork pool: 4 parallel processes for bulk file extraction + maintenance tasks
+    # prefork pool: parallel processes for bulk file extraction + maintenance tasks
+    # Set CELERY_TASK_CONCURRENCY in .env to control the number of processes (default 4).
     command: celery -A app.workers.celery_app worker --loglevel=info
-             -Q bulk,maintenance --pool=prefork --concurrency=4
+             -Q bulk,maintenance --pool=prefork --concurrency=${CELERY_TASK_CONCURRENCY:-4}
              --hostname=worker-bulk@%h
     volumes:
       - ./data:/app/data
@@ -65,11 +66,13 @@ services:
   worker-crawl:
     build: .
     # solo pool: one crawl at a time per container — avoids Celery's daemon-process
-    # restriction that prevents Scrapy's subprocess from spawning. Scale this
-    # service (--scale worker-crawl=N) to run N crawls in parallel.
+    # restriction that prevents Scrapy's subprocess from spawning.
+    # Set CRAWL_WORKER_COUNT in .env to run N crawls in parallel (default 1).
     command: celery -A app.workers.celery_app worker --loglevel=info
              -Q crawl --pool=solo
              --hostname=worker-crawl@%h
+    deploy:
+      replicas: ${CRAWL_WORKER_COUNT:-1}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
