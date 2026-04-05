@@ -44,6 +44,7 @@ async def task_summary(
 async def list_tasks(
     project_id: int | None = None,
     status: str | None = None,
+    task_type: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     q = select(Task).order_by(Task.created_at.desc())
@@ -51,6 +52,8 @@ async def list_tasks(
         q = q.where(Task.project_id == project_id)
     if status is not None:
         q = q.where(Task.status == status)
+    if task_type is not None:
+        q = q.where(Task.task_type == task_type)
     result = await db.execute(q)
     return result.scalars().all()
 

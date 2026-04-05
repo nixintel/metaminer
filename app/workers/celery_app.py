@@ -16,6 +16,7 @@ celery_app = Celery(
     include=[
         "app.workers.bulk_tasks",
         "app.workers.crawl_tasks",
+        "app.workers.telegram_tasks",
         "app.workers.maintenance_tasks",
     ],
 )
@@ -35,27 +36,35 @@ celery_app.conf.update(
     # --- Queue definitions ---
     # bulk:        file metadata extraction (prefork workers, CPU/IO parallel)
     # crawl:       web crawling via Scrapy (solo workers, one crawl per process)
+    # telegram:    Telegram channel scraping via Telethon (solo workers)
     # maintenance: periodic housekeeping (runs on bulk workers, lightweight)
     task_queues=(
         Queue("bulk"),
         Queue("crawl"),
+        Queue("telegram"),
         Queue("maintenance"),
     ),
     task_default_queue="bulk",
 
     # Explicit routing so task dispatch never relies on caller remembering the queue name
     task_routes={
-        "metaminer.bulk_task":          {"queue": "bulk"},
-        "metaminer.crawl_task":         {"queue": "crawl"},
-        "metaminer.purge_old_logs":              {"queue": "maintenance"},
-        "metaminer.cleanup_temp_files":          {"queue": "maintenance"},
-        "metaminer.dispatch_scheduled_crawls":   {"queue": "maintenance"},
+        "metaminer.bulk_task":                              {"queue": "bulk"},
+        "metaminer.crawl_task":                             {"queue": "crawl"},
+        "metaminer.telegram_task":                          {"queue": "telegram"},
+        "metaminer.purge_old_logs":                         {"queue": "maintenance"},
+        "metaminer.cleanup_temp_files":                     {"queue": "maintenance"},
+        "metaminer.dispatch_scheduled_crawls":              {"queue": "maintenance"},
+        "metaminer.dispatch_scheduled_telegram_scrapes":    {"queue": "maintenance"},
     },
 
     beat_schedule={
         "dispatch-scheduled-crawls": {
             "task": "metaminer.dispatch_scheduled_crawls",
             "schedule": 60,  # every minute — checks for due scheduled crawls
+        },
+        "dispatch-scheduled-telegram-scrapes": {
+            "task": "metaminer.dispatch_scheduled_telegram_scrapes",
+            "schedule": 60,  # every minute — checks for due scheduled telegram scrapes
         },
         "purge-old-logs-daily": {
             "task": "metaminer.purge_old_logs",

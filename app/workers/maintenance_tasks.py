@@ -101,6 +101,105 @@ def dispatch_scheduled_crawls():
     asyncio.run(_run())
 
 
+@celery_app.task(name="metaminer.dispatch_scheduled_telegram_scrapes", queue="maintenance")
+def dispatch_scheduled_telegram_scrapes():
+    """
+    Runs every 60 seconds. Finds active scheduled Telegram scrapes whose next_run_at
+    is due, dispatches a telegram task for each, then advances next_run_at.
+    Uses last_run_at as date_from so each run only fetches messages since the previous run.
+    """
+    async def _run():
+        from app.database import make_task_session_factory
+        from app.models.scheduled_telegram_scrape import ScheduledTelegramScrape
+        from app.workers.telegram_tasks import run_telegram_task
+        from app.models.task import Task
+        from sqlalchemy import select
+        import json as _json
+
+        now = datetime.now(timezone.utc)
+        task_engine, SessionLocal = make_task_session_factory()
+        try:
+            async with SessionLocal() as db:
+                result = await db.execute(
+                    select(ScheduledTelegramScrape).where(
+                        ScheduledTelegramScrape.is_active == True,
+                        ScheduledTelegramScrape.next_run_at <= now,
+                    )
+                )
+                due = result.scalars().all()
+
+            for schedule in due:
+                allowed_file_types = None
+                if schedule.allowed_file_types:
+                    try:
+                        allowed_file_types = _json.loads(schedule.allowed_file_types)
+                    except Exception:
+                        pass
+
+                # date_from = last_run_at so we only fetch new messages since the previous run.
+                # Fall back to now - date_range_days for the first run.
+                from config import settings as cfg
+                date_range = schedule.date_range_days or cfg.TELEGRAM_DATE_RANGE_DAYS
+                date_from = schedule.last_run_at or (
+                    now - timedelta(days=date_range)
+                )
+                date_to = now
+
+                async with SessionLocal() as db:
+                    task = Task(
+                        project_id=schedule.project_id,
+                        task_type="telegram",
+                        config_json=_json.dumps({
+                            "channel": schedule.channel,
+                            "allowed_file_types": allowed_file_types,
+                            "max_file_size_mb": schedule.max_file_size_mb,
+                            "max_files": schedule.max_files,
+                            "date_from": date_from.isoformat(),
+                            "date_to": date_to.isoformat(),
+                            "retain_files": schedule.retain_files,
+                            "deduplicate": schedule.deduplicate,
+                            "pdf_mode": schedule.pdf_mode,
+                            "scheduled_telegram_scrape_id": schedule.id,
+                        }),
+                    )
+                    db.add(task)
+                    await db.flush()
+                    task_id = task.id
+                    celery_result = run_telegram_task.delay(
+                        task_id,
+                        schedule.project_id,
+                        schedule.channel,
+                        allowed_file_types,
+                        schedule.max_file_size_mb,
+                        schedule.max_files,
+                        date_from.isoformat(),
+                        date_to.isoformat(),
+                        schedule.retain_files,
+                        schedule.deduplicate,
+                        schedule.pdf_mode,
+                    )
+                    task.celery_task_id = celery_result.id
+                    await db.commit()
+
+                async with SessionLocal() as db:
+                    s = await db.get(ScheduledTelegramScrape, schedule.id)
+                    if s:
+                        s.last_run_at = now
+                        s.next_run_at = now + timedelta(seconds=s.frequency_seconds)
+                        await db.commit()
+
+                logger.info(
+                    "Dispatched scheduled telegram scrape | schedule_id=%d | channel=%s | "
+                    "task_id=%d | next_run_at=%s",
+                    schedule.id, schedule.channel, task_id,
+                    now + timedelta(seconds=schedule.frequency_seconds),
+                )
+        finally:
+            await task_engine.dispose()
+
+    asyncio.run(_run())
+
+
 @celery_app.task(name="metaminer.purge_old_logs", queue="maintenance")
 def purge_old_logs():
     from config import settings

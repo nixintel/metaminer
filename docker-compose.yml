@@ -93,6 +93,36 @@ services:
       retries: 3
       start_period: 15s
 
+  worker-telegram:
+    build: .
+    # solo pool: one telegram task at a time per container.
+    # anon.session is not safe for concurrent access — keep TELEGRAM_WORKER_COUNT=1
+    # unless you are using separate session files per instance.
+    command: celery -A app.workers.celery_app worker --loglevel=info
+             -Q telegram --pool=solo
+             --hostname=worker-telegram@%h
+    deploy:
+      replicas: ${TELEGRAM_WORKER_COUNT:-1}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://metaminer:metaminer@postgres:5432/metaminer
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - PYTHONPATH=/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.workers.celery_app", "inspect", "ping", "-t", "5"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 15s
+
   beat:
     build: .
     # Celery beat scheduler — runs the periodic maintenance tasks.

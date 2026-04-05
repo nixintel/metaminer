@@ -31,4 +31,15 @@ class TaskResponse(BaseModel):
                 return None
         return None
 
+    @computed_field
+    @property
+    def telegram_channel(self) -> str | None:
+        """Channel submitted for telegram tasks, extracted from config_json."""
+        if self.config_json:
+            try:
+                return json.loads(self.config_json).get("channel")
+            except Exception:
+                return None
+        return None
+
     model_config = {"from_attributes": True}

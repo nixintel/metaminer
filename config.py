@@ -60,6 +60,33 @@ class Settings(BaseSettings):
     CELERY_TASK_CONCURRENCY: int = 4  # prefork processes in worker-bulk
     CRAWL_WORKER_COUNT: int = 1       # number of worker-crawl containers (docker-compose deploy.replicas)
 
+    # --- Telegram scraper ---
+    TELEGRAM_API_ID: int = 0          # from https://my.telegram.org — DB credentials used if 0
+    TELEGRAM_API_HASH: str = ""       # as above
+    TELEGRAM_SESSION_PATH: Path = Path("/app/data/telegram/anon.session")
+    TELEGRAM_ALLOWED_FILE_TYPES: list[str] = Field(default=[
+        # Documents
+        "pdf", "doc", "docx", "odt", "rtf",
+        # Spreadsheets
+        "xls", "xlsx", "ods", "csv",
+        # Presentations
+        "ppt", "pptx", "odp",
+        # Images
+        "jpg", "jpeg", "png", "gif", "webp", "tiff", "bmp", "svg",
+        # Video
+        "mp4", "mov", "avi", "mkv", "wmv", "flv", "webm", "mpeg", "mpg",
+        # Audio
+        "mp3", "ogg", "wav", "flac", "aac",
+        # Archives
+        "zip", "rar", "7z", "tar", "gz",
+        # Data / text
+        "txt", "json", "xml",
+    ])
+    TELEGRAM_MAX_FILE_SIZE_MB: int = 100
+    TELEGRAM_MAX_FILES: int = 100     # max files to download per task run
+    TELEGRAM_DATE_RANGE_DAYS: int = 30  # default look-back window when no date_from given
+    TELEGRAM_WORKER_COUNT: int = 1    # containers — keep at 1; anon.session is not multi-process safe
+
     # --- File Retention ---
     RETAIN_FILES: bool = False
     RETAINED_FILES_DIR: Path = Path("/app/data/retained_files")

@@ -13,6 +13,9 @@ redis>=5.0.0
 # Crawling
 scrapy>=2.11.0
 
+# Telegram
+telethon>=1.42.0
+
 # Frontend
 flask>=3.0.0
 

@@ -7,17 +7,20 @@ import logging
 from config import settings
 from app.database import init_db
 from app.utils.logging_config import configure_logging, drain_log_queue
-from app.routers import health, projects, submissions, crawl, tasks, metadata, logs, scheduled_crawls
-import app.models.scheduled_crawl  # ensure table is created by init_db()
+from app.routers import health, projects, submissions, crawl, tasks, metadata, logs, scheduled_crawls, telegram
+import app.models.scheduled_crawl          # ensure table is created by init_db()
+import app.models.telegram_credentials     # ensure table is created by init_db()
+import app.models.scheduled_telegram_scrape  # ensure table is created by init_db()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
     await init_db()
-    # Ensure temp and retained dirs exist
+    # Ensure temp, retained, and telegram session dirs exist
     settings.TEMP_DIR.mkdir(parents=True, exist_ok=True)
     settings.RETAINED_FILES_DIR.mkdir(parents=True, exist_ok=True)
+    settings.TELEGRAM_SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
     logging.getLogger("metaminer").info("Metaminer API started")
     drain_task = asyncio.create_task(drain_log_queue())
     yield
@@ -46,6 +49,7 @@ app.include_router(tasks.router, prefix=prefix)
 app.include_router(metadata.router, prefix=prefix)
 app.include_router(logs.router, prefix=prefix)
 app.include_router(scheduled_crawls.router, prefix=prefix)
+app.include_router(telegram.router, prefix=prefix)
 
 
 @app.exception_handler(Exception)
