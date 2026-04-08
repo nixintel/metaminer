@@ -25,3 +25,5 @@ Thumbs.db
 # My dev stuff
 TODO.md
 manual_test.md
+.claude/
+.claude
