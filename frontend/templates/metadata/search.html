@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}Metadata Search – Metaminer{% endblock %}
+
+{% block page_description %}
+<p class="page-desc">
+  Search all extracted metadata records across your projects.
+  <strong>Keyword</strong> searches the full exiftool output — every field and value in the raw JSON, including GPS coordinates, camera serial numbers, software versions, custom XMP tags, and anything else exiftool extracts.
+  <strong>Advanced Filters</strong> lets you combine multiple specific fields.
+  <strong>Query Builder</strong> supports AND/OR logic across any field combination.
+  Results can be exported to CSV.
+</p>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Metadata Search</h2>
+  {% if records %}
+  <a href="{{ url_for('metadata_export') }}?{{ request.query_string.decode() }}" role="button" class="outline secondary btn-sm">
+    Export CSV
+  </a>
+  {% endif %}
+</div>
+
+<div class="tabs">
+  <a href="?mode=keyword{{ '&project_id=' + request.args.get('project_id','') if request.args.get('project_id') else '' }}"
+     class="{{ 'active' if mode == 'keyword' else '' }}">Keyword</a>
+  <a href="?mode=advanced{{ '&project_id=' + request.args.get('project_id','') if request.args.get('project_id') else '' }}"
+     class="{{ 'active' if mode == 'advanced' else '' }}">Advanced Filters</a>
+  <a href="?mode=query"
+     class="{{ 'active' if mode == 'query' else '' }}">Query Builder</a>
+</div>
+
+{# ── Keyword mode ───────────────────────────────────────────────────────────── #}
+{% if mode == 'keyword' %}
+<form method="GET" action="{{ url_for('metadata_search') }}"
+      hx-get="{{ url_for('metadata_results') }}"
+      hx-target="#results-container"
+      hx-trigger="submit"
+      hx-include="this">
+  <input type="hidden" name="mode" value="keyword">
+  <div style="display: grid; grid-template-columns: 1fr auto auto auto; gap: 0.75rem; align-items: end;">
+    <div>
+      <label for="q">Search</label>
+      <input type="search" id="q" name="q" value="{{ request.args.get('q','') }}"
+             placeholder="Search any metadata field or value (author, title, GPS coords, serial number, software…)"
+             style="width: 100%; min-width: 200px;" autofocus>
+    </div>
+    <div>
+      <label>Project</label>
+      <select name="project_id" style="min-width: 160px;">
+        <option value="">All projects</option>
+        {% for p in projects %}
+        <option value="{{ p.id }}" {{ 'selected' if request.args.get('project_id') == p.id|string else '' }}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Limit</label>
+      <select name="limit" style="min-width: 80px;">
+        {% for l in [50, 100, 200, 500] %}
+        <option value="{{ l }}" {{ 'selected' if request.args.get('limit','50') == l|string else '' }}>{{ l }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit">Search</button>
+  </div>
+</form>
+
+{# ── Advanced mode ──────────────────────────────────────────────────────────── #}
+{% elif mode == 'advanced' %}
+<form method="GET" action="{{ url_for('metadata_search') }}"
+      hx-get="{{ url_for('metadata_results') }}"
+      hx-target="#results-container"
+      hx-trigger="submit"
+      hx-include="this">
+  <input type="hidden" name="mode" value="advanced">
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+    <div>
+      <label>Project</label>
+      <select name="project_id">
+        <option value="">All projects</option>
+        {% for p in projects %}
+        <option value="{{ p.id }}" {{ 'selected' if request.args.get('project_id') == p.id|string else '' }}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Author</label>
+      <input type="text" name="author" value="{{ request.args.get('author','') }}" placeholder="Contains…">
+    </div>
+    <div>
+      <label>Title</label>
+      <input type="text" name="title" value="{{ request.args.get('title','') }}" placeholder="Contains…">
+    </div>
+    <div>
+      <label>Creator Tool</label>
+      <input type="text" name="creator_tool" value="{{ request.args.get('creator_tool','') }}" placeholder="Contains…">
+    </div>
+    <div>
+      <label>Producer</label>
+      <input type="text" name="producer" value="{{ request.args.get('producer','') }}" placeholder="Contains…">
+    </div>
+    <div>
+      <label>File Type(s)</label>
+      <input type="text" name="file_type__in" value="{{ request.args.get('file_type__in','') }}" placeholder="PDF,DOCX,XLSX">
+      <small>Comma-separated</small>
+    </div>
+    <div>
+      <label>MIME Type</label>
+      <input type="text" name="mime_type" value="{{ request.args.get('mime_type','') }}" placeholder="application/pdf">
+    </div>
+    <div>
+      <label>PDF Variant</label>
+      <select name="pdf_variant">
+        <option value="">Any</option>
+        <option value="original" {{ 'selected' if request.args.get('pdf_variant') == 'original' else '' }}>Original</option>
+        <option value="rollback" {{ 'selected' if request.args.get('pdf_variant') == 'rollback' else '' }}>Rollback</option>
+      </select>
+    </div>
+    <div>
+      <label>Submission Mode</label>
+      <select name="submission_mode">
+        <option value="">Any</option>
+        {% for m in ['single','bulk','crawl'] %}
+        <option value="{{ m }}" {{ 'selected' if request.args.get('submission_mode') == m else '' }}>{{ m|title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Source URL contains</label>
+      <input type="text" name="source_url__contains" value="{{ request.args.get('source_url__contains','') }}">
+    </div>
+    <div>
+      <label>Extracted after</label>
+      <input type="date" name="extracted_after" value="{{ request.args.get('extracted_after','') }}">
+    </div>
+    <div>
+      <label>Extracted before</label>
+      <input type="date" name="extracted_before" value="{{ request.args.get('extracted_before','') }}">
+    </div>
+    <div>
+      <label>Raw JSON contains</label>
+      <input type="text" name="raw_contains" value="{{ request.args.get('raw_contains','') }}" placeholder="Any exiftool field value">
+    </div>
+    <div>
+      <label>Sort by</label>
+      <select name="sort_by">
+        {% for col in ['extracted_at','file_name','file_type','author','title','create_date','modify_date','submitted_at'] %}
+        <option value="{{ col }}" {{ 'selected' if request.args.get('sort_by','extracted_at') == col else '' }}>{{ col | replace('_',' ') | title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Order</label>
+      <select name="order">
+        <option value="desc" {{ 'selected' if request.args.get('order','desc') == 'desc' else '' }}>Newest first</option>
+        <option value="asc"  {{ 'selected' if request.args.get('order') == 'asc' else '' }}>Oldest first</option>
+      </select>
+    </div>
+    <div>
+      <label>Limit</label>
+      <select name="limit">
+        {% for l in [50, 100, 200, 500] %}
+        <option value="{{ l }}" {{ 'selected' if request.args.get('limit','50') == l|string else '' }}>{{ l }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <button type="submit" style="margin-top: 1rem;">Search</button>
+  <a href="?mode=advanced" role="button" class="outline secondary" style="margin-left: 0.5rem;">Clear</a>
+</form>
+
+{# ── Query builder mode ─────────────────────────────────────────────────────── #}
+{% elif mode == 'query' %}
+<p>Build a filter with AND/OR logic across any metadata field.</p>
+<form method="POST" action="{{ url_for('metadata_query_results') }}"
+      hx-post="{{ url_for('metadata_query_results') }}"
+      hx-target="#results-container"
+      hx-trigger="submit"
+      hx-include="this">
+
+  <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+    <label style="margin: 0;">Top-level operator:</label>
+    <select name="qb_operator" style="width: auto; margin: 0;">
+      <option value="AND" {{ 'selected' if qb_operator == 'AND' else '' }}>AND (all conditions must match)</option>
+      <option value="OR"  {{ 'selected' if qb_operator == 'OR' else '' }}>OR (any condition must match)</option>
+    </select>
+  </div>
+
+  {% for i in range(5) %}
+  <div class="qb-row">
+    <select name="qb_field_{{ i }}">
+      <option value="">— field —</option>
+      {% for f in ['file_name','author','title','creator_tool','producer','file_type','mime_type','pdf_variant','pdf_version','source_url','submission_mode'] %}
+      <option value="{{ f }}" {{ 'selected' if qb_fields[i] == f else '' }}>{{ f | replace('_',' ') | title }}</option>
+      {% endfor %}
+    </select>
+    <select name="qb_op_{{ i }}">
+      {% for op in ['contains','equals','starts_with','before','after','in'] %}
+      <option value="{{ op }}" {{ 'selected' if qb_ops[i] == op else '' }}>{{ op | replace('_',' ') }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="qb_value_{{ i }}" value="{{ qb_values[i] }}"
+           placeholder="{{ 'Leave blank to ignore this row' if i > 0 else 'Value' }}">
+  </div>
+  {% endfor %}
+
+  <div style="display: flex; gap: 1rem; margin-top: 1rem; align-items: center;">
+    <div>
+      <label style="display: inline; margin-right: 0.5rem;">Limit</label>
+      <select name="qb_limit" style="width: auto;">
+        {% for l in [50, 100, 200, 500] %}
+        <option value="{{ l }}" {{ 'selected' if qb_limit == l|string else '' }}>{{ l }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit">Run Query</button>
+    <a href="?mode=query" role="button" class="outline secondary">Clear</a>
+  </div>
+</form>
+{% endif %}
+
+{# ── Results (shared across all modes) ─────────────────────────────────────── #}
+{% include "metadata/_results.html" %}
+
+{% endblock %}

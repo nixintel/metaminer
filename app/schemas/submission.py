@@ -1,18 +1,11 @@
 from pydantic import BaseModel
 
 
-class SingleFileSubmit(BaseModel):
-    project_id: int
-    file_path: str
-    retain_file: bool = False
-    pdf_mode: bool | None = None  # None = use global config default
-
-
-class BulkSubmit(BaseModel):
+class ManualSubmit(BaseModel):
     project_id: int
     paths: list[str]  # files and/or directories (processed recursively)
     retain_files: bool = False
-    pdf_mode: bool | None = None
+    pdf_mode: bool | None = None  # None = use global config default
 
 
 class SubmissionResponse(BaseModel):

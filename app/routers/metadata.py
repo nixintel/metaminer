@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
 from datetime import datetime
 from app.database import get_db
-from app.services.query_service import query_metadata
+from app.services.query_service import query_metadata, query_metadata_tree
+from app.schemas.metadata import QueryRequest
 
 router = APIRouter(prefix="/metadata", tags=["metadata"])
 
@@ -11,6 +12,7 @@ router = APIRouter(prefix="/metadata", tags=["metadata"])
 @router.get("")
 async def search_metadata(
     project_id: Annotated[int | None, Query()] = None,
+    task_id: Annotated[int | None, Query()] = None,
     file_type: Annotated[str | None, Query()] = None,
     file_type__in: Annotated[str | None, Query(description="Comma-separated list, e.g. PDF,DOCX")] = None,
     author: Annotated[str | None, Query()] = None,
@@ -19,7 +21,7 @@ async def search_metadata(
     producer: Annotated[str | None, Query()] = None,
     mime_type: Annotated[str | None, Query()] = None,
     pdf_variant: Annotated[str | None, Query(description="original or rollback")] = None,
-    submission_mode: Annotated[str | None, Query(description="single, bulk, or crawl")] = None,
+    submission_mode: Annotated[str | None, Query(description="manual, crawl, or telegram")] = None,
     source_url__contains: Annotated[str | None, Query()] = None,
     extracted_after: Annotated[datetime | None, Query()] = None,
     extracted_before: Annotated[datetime | None, Query()] = None,
@@ -33,6 +35,7 @@ async def search_metadata(
 ):
     params = dict(
         project_id=project_id,
+        task_id=task_id,
         file_type=file_type,
         file_type__in=file_type__in,
         author=author,
@@ -53,3 +56,8 @@ async def search_metadata(
         offset=offset,
     )
     return await query_metadata(db, params)
+
+
+@router.post("/query")
+async def query_metadata_post(request: QueryRequest, db: AsyncSession = Depends(get_db)):
+    return await query_metadata_tree(db, request.model_dump())

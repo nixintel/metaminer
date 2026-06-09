@@ -1,35 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
-from app.schemas.submission import SingleFileSubmit, BulkSubmit, SubmissionResponse
+from app.schemas.submission import ManualSubmit
 from app.schemas.task import TaskResponse
 from app.models.project import Project
 from app.models.task import Task
-from app.services.metadata_service import process_single_file
 import json
 
 router = APIRouter(prefix="/submissions", tags=["submissions"])
 
 
-@router.post("/single", response_model=SubmissionResponse, status_code=201)
-async def submit_single_file(body: SingleFileSubmit, db: AsyncSession = Depends(get_db)):
-    project = await db.get(Project, body.project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    result = await process_single_file(
-        db=db,
-        project_id=body.project_id,
-        file_path=body.file_path,
-        retain_file_opt=body.retain_file,
-        pdf_mode=body.pdf_mode,
-    )
-    return result
-
-
-@router.post("/bulk", response_model=TaskResponse, status_code=202)
-async def submit_bulk(body: BulkSubmit, db: AsyncSession = Depends(get_db)):
-    from app.workers.bulk_tasks import run_bulk_task
+@router.post("/manual", response_model=TaskResponse, status_code=202)
+async def submit_manual(body: ManualSubmit, db: AsyncSession = Depends(get_db)):
+    from app.workers.manual_tasks import run_manual_task
 
     project = await db.get(Project, body.project_id)
     if not project:
@@ -37,7 +20,7 @@ async def submit_bulk(body: BulkSubmit, db: AsyncSession = Depends(get_db)):
 
     task = Task(
         project_id=body.project_id,
-        task_type="bulk",
+        task_type="manual",
         config_json=json.dumps({
             "paths": body.paths,
             "retain_files": body.retain_files,
@@ -48,7 +31,7 @@ async def submit_bulk(body: BulkSubmit, db: AsyncSession = Depends(get_db)):
     await db.flush()
     await db.refresh(task)
 
-    celery_result = run_bulk_task.delay(task.id, body.paths, body.project_id, body.retain_files, body.pdf_mode)
+    celery_result = run_manual_task.delay(task.id, body.paths, body.project_id, body.retain_files, body.pdf_mode)
     task.celery_task_id = celery_result.id
     await db.flush()
 

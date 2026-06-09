@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Metadata #{{ record.id }} – Metaminer{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>Metadata Record #{{ record.id }}</h2>
+  <a href="{{ url_for('metadata_search') }}" role="button" class="outline secondary btn-sm">← Back</a>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+  <article>
+    <header><strong>File Info</strong></header>
+    <table>
+      <tbody>
+        {% for field, value in [
+          ('File name', record.file_name),
+          ('File type', record.file_type),
+          ('Extension', record.file_type_extension),
+          ('MIME type', record.mime_type),
+          ('File size', record.file_size),
+          ('PDF variant', record.pdf_variant),
+          ('PDF version', record.pdf_version),
+        ] %}
+        {% if value %}
+        <tr><td><strong>{{ field }}</strong></td><td>{{ value }}</td></tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article>
+    <header><strong>Document Metadata</strong></header>
+    <table>
+      <tbody>
+        {% for field, value in [
+          ('Author', record.author),
+          ('Title', record.title),
+          ('Creator tool', record.creator_tool),
+          ('Producer', record.producer),
+          ('Create date', record.create_date),
+          ('Modify date', record.modify_date),
+        ] %}
+        {% if value %}
+        <tr><td><strong>{{ field }}</strong></td><td>{{ value }}</td></tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article>
+    <header><strong>Submission Context</strong></header>
+    <table>
+      <tbody>
+        {% for field, value in [
+          ('Project', record.project_name ~ ' (#' ~ record.project_id ~ ')'),
+          ('Submission ID', record.submission_id),
+          ('Submission mode', record.submission_mode),
+          ('Source URL', record.source_url),
+          ('Extracted at', record.extracted_at),
+          ('Exiftool version', record.exiftool_version),
+        ] %}
+        {% if value %}
+        <tr>
+          <td><strong>{{ field }}</strong></td>
+          <td>
+            {% if field == 'Source URL' and value %}
+            <a href="{{ value }}" target="_blank" rel="noopener">{{ value }}</a>
+            {% else %}
+            {{ value }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+</div>
+
+<h3 style="margin-top: 2rem;">Raw Exiftool Output</h3>
+<details open>
+  <summary>Show / hide JSON</summary>
+  <div class="raw-json">{{ record.raw_json | tojson(indent=2) }}</div>
+</details>
+{% endblock %}

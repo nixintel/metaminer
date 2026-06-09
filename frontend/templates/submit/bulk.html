@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Bulk Submit – Metaminer{% endblock %}
+
+{% block page_description %}
+<p class="page-desc">Upload multiple files at once for batch metadata extraction. Processing runs in the background — you'll get a Task ID to monitor progress. You can select individual files or an entire folder.</p>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Bulk Submit</h2>
+</div>
+
+<article style="max-width: 680px;">
+  <form action="{{ url_for('submit_bulk_post') }}" method="POST" enctype="multipart/form-data">
+    <label for="project_id">Project</label>
+    <select id="project_id" name="project_id" required>
+      <option value="">— select a project —</option>
+      {% for p in projects %}
+      <option value="{{ p.id }}">{{ p.name }}</option>
+      {% endfor %}
+    </select>
+
+    <label>Select individual files</label>
+    <div class="upload-zone">
+      <p style="margin: 0 0 0.5rem; font-weight: 600;">Drop files here, or click to browse</p>
+      <input type="file" name="files" multiple>
+      <p class="upload-hint">Hold Ctrl / Cmd to select multiple files</p>
+    </div>
+
+    <label>— or select an entire folder —</label>
+    <div class="upload-zone" style="border-color: var(--pico-muted-border-color);">
+      <p style="margin: 0 0 0.5rem; font-weight: 600;">Click to choose a folder</p>
+      <input type="file" name="folder_files" webkitdirectory multiple>
+      <p class="upload-hint">All files inside the selected folder will be submitted (subdirectories included)</p>
+    </div>
+
+    <fieldset>
+      <legend>Options</legend>
+      <label data-tooltip="Keep uploaded files on the server after extraction. Without this the temp files are deleted automatically.">
+        <input type="checkbox" name="retain_files" value="1">
+        Retain files after extraction
+      </label>
+      <label data-tooltip="For PDFs: also extract metadata from any earlier embedded version of the file. Adds a second record per PDF with rollback metadata.">
+        <input type="checkbox" name="pdf_mode" value="1">
+        PDF rollback mode
+      </label>
+    </fieldset>
+
+    <button type="submit">Submit Batch</button>
+  </form>
+</article>
+{% endblock %}

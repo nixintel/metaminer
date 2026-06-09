@@ -50,7 +50,7 @@ async def populated_db(db):
         project_id=project.id,
         original_filename="report.pdf",
         file_hash_sha256="a" * 64,
-        submission_mode="single",
+        submission_mode="manual",
         source_url=None,
     )
     sub_xlsx = FileSubmission(

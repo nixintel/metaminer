@@ -1,5 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel
+from typing import Literal, Union
+from pydantic import BaseModel, Field
 import json
 
 
@@ -61,3 +62,26 @@ class MetadataQueryParams(BaseModel):
     order: str = "desc"
     limit: int = 50
     offset: int = 0
+
+
+class FilterCondition(BaseModel):
+    field: str
+    op: Literal["contains", "equals", "starts_with", "before", "after", "in"]
+    value: str
+
+
+class FilterGroup(BaseModel):
+    operator: Literal["AND", "OR"]
+    conditions: list[Union["FilterGroup", FilterCondition]]
+
+
+FilterGroup.model_rebuild()
+
+
+class QueryRequest(BaseModel):
+    operator: Literal["AND", "OR"] = "AND"
+    conditions: list[Union[FilterGroup, FilterCondition]] = []
+    sort_by: str = "extracted_at"
+    order: Literal["asc", "desc"] = "desc"
+    limit: int = Field(50, ge=1, le=500)
+    offset: int = Field(0, ge=0)

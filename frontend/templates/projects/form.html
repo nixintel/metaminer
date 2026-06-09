@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if project else 'New' }} Project – Metaminer{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>{{ 'Edit Project' if project else 'New Project' }}</h2>
+  <a href="{{ url_for('projects_list') }}" role="button" class="outline secondary">Cancel</a>
+</div>
+
+<article style="max-width: 600px;">
+  <form action="{{ action }}" method="POST">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" value="{{ project.name if project else '' }}"
+           required placeholder="My project" autofocus>
+
+    <label for="description">Description</label>
+    <textarea id="description" name="description" rows="3"
+              placeholder="Optional description">{{ project.description if project else '' }}</textarea>
+
+    <button type="submit">{{ 'Save Changes' if project else 'Create Project' }}</button>
+  </form>
+</article>
+{% endblock %}

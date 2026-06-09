@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – Metaminer{% endblock %}
+
+{% block page_description %}
+<p class="page-desc">Live overview of system health and recent activity. Health indicators reflect the current state of the database, Redis message broker, and exiftool. Task counts update on page refresh.</p>
+{% endblock %}
+
+{% block content %}
+<h2>Dashboard</h2>
+
+<h3>System Health</h3>
+<div class="health-grid">
+  {% for service, status in health.items() %}
+  <div class="health-card status-{{ 'ok' if status.startswith('ok') else 'error' }}">
+    <div class="label">{{ service | title }}</div>
+    <span class="badge badge-{{ 'ok' if status.startswith('ok') else 'error' }}">{{ status }}</span>
+  </div>
+  {% else %}
+  <p>Could not reach API.</p>
+  {% endfor %}
+</div>
+
+<h3>Task Summary</h3>
+<div class="stats-grid">
+  {% for status, count in summary.items() %}
+  <div class="stat-card">
+    <div class="stat-value">{{ count }}</div>
+    <span class="badge badge-{{ status }}">{{ status }}</span>
+  </div>
+  {% else %}
+  <p>No data.</p>
+  {% endfor %}
+</div>
+
+<h3>Recent Tasks</h3>
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Project</th>
+      <th>Type</th>
+      <th>Status</th>
+      <th>Files</th>
+      <th>Created</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for task in recent_tasks %}
+    <tr>
+      <td>{{ task.id }}</td>
+      <td>{{ task.project_id }}</td>
+      <td>{{ task.task_type }}</td>
+      <td><span class="badge badge-{{ task.status }}">{{ task.status }}</span></td>
+      <td>{{ task.files_processed }}/{{ task.files_found }}</td>
+      <td>{{ task.created_at[:19] | replace('T', ' ') }}</td>
+      <td><a href="{{ url_for('task_detail', tid=task.id) }}">View</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No tasks yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

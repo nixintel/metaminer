@@ -67,7 +67,7 @@ class TestIsDuplicate:
             project_id=project.id,
             original_filename="report.pdf",
             file_hash_sha256=HASH_A,
-            submission_mode="single",
+            submission_mode="manual",
         ))
         await db.flush()
         assert await _is_duplicate(db, project.id, HASH_A) is True
@@ -77,7 +77,7 @@ class TestIsDuplicate:
             project_id=other_project.id,
             original_filename="report.pdf",
             file_hash_sha256=HASH_A,
-            submission_mode="single",
+            submission_mode="manual",
         ))
         await db.flush()
         # Same hash but belongs to a different project — not a duplicate here
@@ -88,7 +88,7 @@ class TestIsDuplicate:
             project_id=project.id,
             original_filename="report.pdf",
             file_hash_sha256=HASH_A,
-            submission_mode="single",
+            submission_mode="manual",
         ))
         await db.flush()
         assert await _is_duplicate(db, project.id, HASH_B) is False

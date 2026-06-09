@@ -1,0 +1,30 @@
+{#- HTMX partial — rendered standalone, not extending base.html -#}
+<div id="task-progress"
+     {% if task.status in ('pending', 'running') %}
+     hx-get="{{ url_for('task_progress', tid=task.id) }}"
+     hx-trigger="every 5s"
+     hx-swap="outerHTML"
+     {% endif %}>
+
+  <div class="task-meta" style="margin-bottom: 1rem;">
+    <span>Status: <strong><span class="badge badge-{{ task.status }}">{{ task.status }}</span></strong></span>
+    <span>Files found: <strong>{{ task.files_found }}</strong></span>
+    <span>Processed: <strong>{{ task.files_processed }}</strong></span>
+    {% if task.skipped_duplicates %}
+    <span>Duplicates skipped: <strong>{{ task.skipped_duplicates }}</strong></span>
+    {% endif %}
+    {% if task.crawl_failures %}
+    <span>Failures: <strong>{{ task.crawl_failures }}</strong></span>
+    {% endif %}
+  </div>
+
+  {% if task.status == 'running' and task.files_found %}
+  <progress value="{{ task.files_processed }}" max="{{ task.files_found }}" style="margin-bottom: 1rem;"></progress>
+  {% elif task.status in ('pending', 'running') %}
+  <progress style="margin-bottom: 1rem;"></progress>
+  {% endif %}
+
+  {% if task.error_message %}
+  <div class="flash flash-error">{{ task.error_message }}</div>
+  {% endif %}
+</div>

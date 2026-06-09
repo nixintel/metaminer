@@ -28,7 +28,7 @@ class FileSubmission(Base):
     mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     submission_mode: Mapped[str] = mapped_column(
         String(20), nullable=False
-    )  # 'single' | 'bulk' | 'crawl'
+    )  # 'manual' | 'crawl' | 'telegram'
     retained: Mapped[bool] = mapped_column(Boolean, default=False)
     retained_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

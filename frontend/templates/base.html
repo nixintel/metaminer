@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Metaminer{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-header">Metaminer</div>
+    <nav>
+      <ul>
+        <li>
+          <a href="{{ url_for('dashboard') }}"
+             class="{{ 'active' if request.endpoint == 'dashboard' else '' }}">
+            Dashboard
+          </a>
+        </li>
+        <li>
+          <a href="{{ url_for('projects_list') }}"
+             class="{{ 'active' if 'project' in (request.endpoint or '') else '' }}">
+            Projects
+          </a>
+        </li>
+        <li class="nav-section">Submit</li>
+        <li class="nav-indent">
+          <a href="{{ url_for('submit_manual') }}"
+             class="{{ 'active' if request.endpoint in ('submit_manual', 'submit_manual_post') else '' }}">
+            Manual Upload
+          </a>
+        </li>
+        <li class="nav-indent">
+          <a href="{{ url_for('submit_crawl') }}"
+             class="{{ 'active' if request.endpoint == 'submit_crawl' else '' }}">
+            Web Crawl
+          </a>
+        </li>
+        <li>
+          <a href="{{ url_for('tasks_list') }}"
+             class="{{ 'active' if 'task' in (request.endpoint or '') else '' }}">
+            Tasks
+          </a>
+        </li>
+        <li>
+          <a href="{{ url_for('metadata_search') }}"
+             class="{{ 'active' if 'metadata' in (request.endpoint or '') else '' }}">
+            Metadata
+          </a>
+        </li>
+        <li>
+          <a href="{{ url_for('logs_list') }}"
+             class="{{ 'active' if 'log' in (request.endpoint or '') else '' }}">
+            Logs
+          </a>
+        </li>
+        <li>
+          <a href="{{ url_for('scheduled_crawls_list') }}"
+             class="{{ 'active' if 'scheduled' in (request.endpoint or '') else '' }}">
+            Scheduled Crawls
+          </a>
+        </li>
+        <li>
+          <a href="{{ url_for('telegram_index') }}"
+             class="{{ 'active' if 'telegram' in (request.endpoint or '') else '' }}">
+            Telegram
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, msg in messages %}
+      <div class="flash flash-{{ category }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block page_description %}{% endblock %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</body>
+</html>

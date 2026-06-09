@@ -85,8 +85,8 @@ class TestCrawlJobdirColumn:
         assert task.status == "failed"
 
     async def test_non_crawl_task_crawl_jobdir_is_none(self, db, project):
-        # crawl_jobdir is only meaningful for crawl tasks; bulk tasks leave it null
-        task = Task(project_id=project.id, task_type="bulk", status="pending")
+        # crawl_jobdir is only meaningful for crawl tasks; manual tasks leave it null
+        task = Task(project_id=project.id, task_type="manual", status="pending")
         db.add(task)
         await db.flush()
         assert task.crawl_jobdir is None

@@ -1,15 +1,16 @@
 # Metaminer
 
-Metaminer is a metadata extraction service that processes file uploads and web crawls. Users can submit single or bulk files to extract metadata and save to a database. The crawl mode uses Scrapy to crawl a target website and discover files likely to contain metadata. All extracted metadata is saved to a database. Crawling tasks can be on-demand or scheduled. Scheduled tasks revisit a website periodically but will only add new metadata not previously collected.
+Metaminer is a metadata extraction service that processes file uploads and web crawls. Users can submit files to extract metadata and save it to a database. The crawl mode uses Scrapy to crawl a target website and discover files likely to contain metadata. All extracted metadata is saved to a database. Crawling tasks can be on-demand or scheduled. Scheduled tasks revisit a website periodically but will only add new metadata not previously collected.
 
 Crawl options are highly configurable and can be tweaked to optimise collection. See API docs for more info.
 
 Metaminer also builds in a PDF rollback mode. For some PDF documents Exiftool can rollback changes and recover previously hidden metadata. Metaminer will always attempt to do this by default but it can be disabled.
 
-It uses FastAPI for the REST interface, SQLAlchemy for database access, Celery + Redis for async task processing, and Scrapy for web crawl file discovery and download.
+It uses FastAPI for the REST interface, SQLAlchemy for database access, Celery + Redis for async task processing, and Scrapy for web crawl file discovery and download. A Flask web GUI is available for all core functionality.
 
-There is no UI, but there will be in due course.
+> **Note:** The Telegram scraping feature is not yet functional. The API endpoints and UI are present but the integration is incomplete.
 
+---
 
 ## Deploying with Docker Compose
 
@@ -37,9 +38,9 @@ docker compose ps
 curl http://localhost:8000/healthcheck
 ```
 
-The API is available at `http://localhost:8000` and the frontend at `http://localhost:5000`.
+The web GUI is available at `http://localhost:5000`.
 
-Swagger UI is available at `http://localhost:8000/docs` to explore and test the API. Metaminer currently has no UI, but it will eventually.
+The API is available at `http://localhost:8000`. Swagger UI is at `http://localhost:8000/docs` and ReDoc at `http://localhost:8000/redoc`.
 
 To stop the stack:
 ```bash
@@ -98,27 +99,13 @@ curl -X POST http://localhost:8000/api/v1/projects \
 
 ### Submissions
 
-Submit files for immediate or batch metadata extraction.
+Submit files for metadata extraction. Files and directories are processed as a background task.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| `POST` | `/api/v1/submissions/single` | Extract metadata from a single file — synchronous, returns `201` |
-| `POST` | `/api/v1/submissions/bulk` | Enqueue batch extraction across files/directories — async, returns `202` |
+| `POST` | `/api/v1/submissions/manual` | Enqueue batch extraction across files/directories — async, returns `202` |
 
-**Single file submission body:**
-```json
-{
-  "project_id": 1,
-  "file_path": "/app/data/report.pdf",
-  "retain_file": false,
-  "pdf_mode": true
-}
-```
-
-- `retain_file`: copy the file into the project's retained storage
-- `pdf_mode`: run exiftool rollback extraction on the PDF in addition to standard extraction
-
-**Bulk submission body:**
+**Request body:**
 ```json
 {
   "project_id": 1,
@@ -128,12 +115,16 @@ Submit files for immediate or batch metadata extraction.
 }
 ```
 
-Directories in `paths` are walked recursively. Returns a task ID to poll for progress.
+- `paths`: list of file or directory paths; directories are walked recursively
+- `retain_files`: copy files into the project's retained storage after extraction
+- `pdf_mode`: run exiftool rollback extraction on PDFs in addition to standard extraction
+
+Returns a task ID to poll for progress.
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/submissions/single \
+curl -X POST http://localhost:8000/api/v1/submissions/manual \
   -H 'Content-Type: application/json' \
-  -d '{"project_id": 1, "file_path": "/app/data/test.pdf", "retain_file": false, "pdf_mode": true}'
+  -d '{"project_id": 1, "paths": ["/app/data/report.pdf"], "retain_files": false, "pdf_mode": true}'
 ```
 
 ---
@@ -155,7 +146,8 @@ Request body:
   "retain_files": false,
   "deduplicate": true,
   "robotstxt_obey": true,
-  "crawl_images": false
+  "crawl_images": false,
+  "allow_cross_domain": false
 }
 ```
 
@@ -168,6 +160,7 @@ Request body:
 | `deduplicate` | `true` | Skip files already processed in this project (matched by URL + ETag/hash) |
 | `robotstxt_obey` | `true` | Respect `robots.txt` |
 | `crawl_images` | `false` | Include image files in crawl |
+| `allow_cross_domain` | `false` | Follow links to external domains |
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/crawl \
@@ -217,16 +210,18 @@ curl -X PATCH http://localhost:8000/api/v1/scheduled-crawls/1 \
 
 ### Tasks
 
-Monitor and cancel async tasks (bulk submissions and crawls).
+Monitor and cancel async tasks (manual submissions and crawls).
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| `GET` | `/api/v1/tasks` | List tasks (filter: `?project_id=`, `?status=`) |
+| `GET` | `/api/v1/tasks` | List tasks (filter: `?project_id=`, `?status=`, `?task_type=`) |
 | `GET` | `/api/v1/tasks/summary` | Aggregated counts by status (filter: `?project_id=`) |
 | `GET` | `/api/v1/tasks/{task_id}` | Get a task by ID |
 | `DELETE` | `/api/v1/tasks/{task_id}` | Cancel a pending or running task — returns `409` if already terminal |
 
 Task status values: `pending`, `running`, `completed`, `failed`, `cancelled`
+
+Task type values: `manual`, `crawl`, `telegram`
 
 Task response includes: `files_found`, `files_processed`, `crawl_failures`, `crawl_errors`, `skipped_duplicates`, `error_message`, `created_at`, `started_at`, `completed_at`
 
@@ -254,6 +249,7 @@ All parameters are optional.
 | Parameter | Description |
 | --------- | ----------- |
 | `project_id` | Filter by project |
+| `task_id` | Filter by task — returns only records from files submitted by that task |
 | `file_type` | Exact match (case-insensitive), e.g. `PDF` |
 | `file_type__in` | Comma-separated list, e.g. `PDF,DOCX,XLSX` |
 | `author` | Partial match (case-insensitive) |
@@ -262,11 +258,11 @@ All parameters are optional.
 | `producer` | Partial match (case-insensitive) |
 | `mime_type` | Exact match |
 | `pdf_variant` | `original` or `rollback` |
-| `submission_mode` | `single`, `bulk`, or `crawl` |
+| `submission_mode` | `manual` or `crawl` |
 | `source_url__contains` | Substring match on the source URL |
 | `extracted_after` | ISO 8601 datetime — records extracted after this time |
 | `extracted_before` | ISO 8601 datetime — records extracted before this time |
-| `q` | Full-text search across author, title, creator_tool, producer |
+| `q` | Full-text search across author, title, creator_tool, producer, file name, and raw exiftool JSON |
 | `raw_contains` | Substring search inside the raw exiftool JSON |
 | `sort_by` | Field to sort by (default: `extracted_at`) |
 | `order` | `asc` or `desc` (default: `desc`) |
@@ -282,7 +278,36 @@ curl "http://localhost:8000/api/v1/metadata?project_id=1&submission_mode=crawl&l
 
 # Full-text search
 curl "http://localhost:8000/api/v1/metadata?project_id=1&q=annual+report"
+
+# All metadata from a specific task
+curl "http://localhost:8000/api/v1/metadata?task_id=42"
 ```
+
+**`POST /api/v1/metadata/query`**
+
+Accepts a nested JSON filter tree supporting `AND`/`OR` logic across multiple fields.
+
+```json
+{
+  "operator": "AND",
+  "conditions": [
+    {"field": "author", "op": "contains", "value": "Smith"},
+    {
+      "operator": "OR",
+      "conditions": [
+        {"field": "title", "op": "contains", "value": "report"},
+        {"field": "file_type", "op": "equals", "value": "PDF"}
+      ]
+    }
+  ],
+  "sort_by": "extracted_at",
+  "order": "desc",
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Supported operators: `contains`, `equals`, `starts_with`, `before`, `after`, `in`
 
 ---
 

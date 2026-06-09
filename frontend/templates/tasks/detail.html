@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Task #{{ task.id }} – Metaminer{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>Task #{{ task.id }}</h2>
+  <div>
+    <a href="{{ url_for('tasks_list') }}" role="button" class="outline secondary btn-sm">← Back</a>
+    {% if task.status in ('pending', 'running') %}
+    <form action="{{ url_for('task_cancel', tid=task.id) }}" method="POST" style="display:inline;">
+      <button type="submit" class="outline secondary btn-sm"
+              hx-confirm="Cancel this task?">Cancel Task</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<article>
+  <header>
+    <strong>{{ task.task_type | title }} Task</strong>
+    {% if task.crawl_url %}— <a href="{{ task.crawl_url }}" target="_blank">{{ task.crawl_url }}</a>{% endif %}
+    {% if task.telegram_channel %}— {{ task.telegram_channel }}{% endif %}
+  </header>
+
+  {% include "tasks/_progress.html" %}
+
+  <div class="task-meta">
+    <span>Project: <strong>{{ task.project_id }}</strong></span>
+    <span>Created: <strong>{{ task.created_at[:19] | replace('T', ' ') }}</strong></span>
+    {% if task.started_at %}
+    <span>Started: <strong>{{ task.started_at[:19] | replace('T', ' ') }}</strong></span>
+    {% endif %}
+    {% if task.completed_at %}
+    <span>Completed: <strong>{{ task.completed_at[:19] | replace('T', ' ') }}</strong></span>
+    {% endif %}
+  </div>
+</article>
+
+{% if task.status == 'completed' %}
+<a href="{{ url_for('metadata_search') }}?task_id={{ task.id }}" role="button" class="outline" style="margin-top: 1rem;">
+  View Metadata Results
+</a>
+{% endif %}
+
+<h3 style="margin-top: 2rem;">Logs</h3>
+<table>
+  <thead>
+    <tr><th>Time</th><th>Level</th><th>Message</th></tr>
+  </thead>
+  <tbody>
+    {% for log in logs %}
+    <tr>
+      <td style="white-space: nowrap; font-size: 0.8rem;">{{ log.created_at[:19] | replace('T', ' ') }}</td>
+      <td><span class="badge badge-{{ log.level | lower }}">{{ log.level }}</span></td>
+      <td style="font-size: 0.85rem;">{{ log.message }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3">No logs for this task.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

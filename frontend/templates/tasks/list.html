@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Tasks – Metaminer{% endblock %}
+
+{% block page_description %}
+<p class="page-desc">Background tasks are created when you submit a bulk extraction, web crawl, or Telegram scrape. Monitor progress here and view per-task logs. Running tasks update automatically when you open the detail view.</p>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Tasks</h2>
+</div>
+
+<form class="filters" method="GET" action="{{ url_for('tasks_list') }}">
+  <div>
+    <label>Project</label>
+    <select name="project_id" style="min-width: 160px;">
+      <option value="">All projects</option>
+      {% for p in projects %}
+      <option value="{{ p.id }}" {{ 'selected' if request.args.get('project_id') == p.id|string else '' }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Status</label>
+    <select name="status">
+      <option value="">All</option>
+      {% for s in ['pending','running','completed','failed','cancelled'] %}
+      <option value="{{ s }}" {{ 'selected' if request.args.get('status') == s else '' }}>{{ s|title }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Type</label>
+    <select name="task_type">
+      <option value="">All</option>
+      {% for t in ['bulk','crawl','telegram'] %}
+      <option value="{{ t }}" {{ 'selected' if request.args.get('task_type') == t else '' }}>{{ t|title }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn-sm">Filter</button>
+  <a href="{{ url_for('tasks_list') }}" role="button" class="outline secondary btn-sm">Clear</a>
+</form>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Type</th>
+      <th>Project</th>
+      <th>Target</th>
+      <th>Status</th>
+      <th>Progress</th>
+      <th>Created</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for task in tasks %}
+    <tr>
+      <td>{{ task.id }}</td>
+      <td>{{ task.task_type }}</td>
+      <td>{{ task.project_id }}</td>
+      <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        {{ task.crawl_url or task.telegram_channel or '—' }}
+      </td>
+      <td><span class="badge badge-{{ task.status }}">{{ task.status }}</span></td>
+      <td>{{ task.files_processed }}/{{ task.files_found }}</td>
+      <td>{{ task.created_at[:16] | replace('T', ' ') }}</td>
+      <td class="actions">
+        <a href="{{ url_for('task_detail', tid=task.id) }}" role="button" class="outline btn-sm">View</a>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8">No tasks found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="pagination">
+  {% set offset = request.args.get('offset', 0) | int %}
+  {% set limit = 50 %}
+  {% if offset > 0 %}
+  <a href="{{ url_for('tasks_list', **dict(request.args, offset=offset - limit)) }}" role="button" class="outline secondary btn-sm">← Previous</a>
+  {% endif %}
+  {% if tasks | length == limit %}
+  <a href="{{ url_for('tasks_list', **dict(request.args, offset=offset + limit)) }}" role="button" class="outline secondary btn-sm">Next →</a>
+  {% endif %}
+</div>
+{% endblock %}

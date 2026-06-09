@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Submit Single File – Metaminer{% endblock %}
+
+{% block page_description %}
+<p class="page-desc">Upload a single file to extract its metadata immediately. Results are returned as soon as processing completes — no background task is created. Any file type recognised by exiftool is supported.</p>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Submit Single File</h2>
+</div>
+
+<article style="max-width: 640px;">
+  <form action="{{ url_for('submit_single_post') }}" method="POST" enctype="multipart/form-data">
+    <label for="project_id">Project</label>
+    <select id="project_id" name="project_id" required>
+      <option value="">— select a project —</option>
+      {% for p in projects %}
+      <option value="{{ p.id }}" {{ 'selected' if selected_project == p.id|string else '' }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+
+    <label>File</label>
+    <div class="upload-zone">
+      <p style="margin: 0 0 0.5rem; font-weight: 600;">Drop a file here, or click to browse</p>
+      <input type="file" name="file" id="file-input" required>
+      <p class="upload-hint">PDF, Office documents, images, and any other file type recognised by exiftool</p>
+    </div>
+
+    <fieldset>
+      <legend>Options</legend>
+      <label data-tooltip="Keep the uploaded file on the server after extraction. Without this the temp file is deleted automatically.">
+        <input type="checkbox" name="retain_file" value="1">
+        Retain file after extraction
+      </label>
+      <label data-tooltip="For PDFs: also extract metadata from any earlier embedded version of the file. Can reveal author info that appears to have been removed.">
+        <input type="checkbox" name="pdf_mode" value="1">
+        PDF rollback mode
+      </label>
+    </fieldset>
+
+    <button type="submit">Extract Metadata</button>
+  </form>
+</article>
+
+{% if result %}
+<article style="max-width: 640px; margin-top: 1.5rem; border-left: 4px solid var(--pico-primary);">
+  <header><strong>Result</strong></header>
+  <table>
+    <tr><td>Submission ID</td><td><strong>{{ result.submission_id }}</strong></td></tr>
+    <tr><td>Records created</td><td><strong>{{ result.records_created }}</strong></td></tr>
+    {% if result.skipped_duplicate %}
+    <tr><td>Status</td><td><span class="badge badge-warning">Duplicate — already processed in this project</span></td></tr>
+    {% endif %}
+  </table>
+  <a href="{{ url_for('metadata_search') }}?project_id={{ result.project_id }}" role="button" class="outline" style="margin-top: 0.75rem;">
+    View Metadata
+  </a>
+</article>
+{% endif %}
+{% endblock %}

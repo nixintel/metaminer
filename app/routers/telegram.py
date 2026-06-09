@@ -226,8 +226,13 @@ async def auth_start(body: TelegramAuthStart, db: AsyncSession = Depends(get_db)
     api_id, api_hash = creds
     settings.TELEGRAM_SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
     client = make_client(api_id, api_hash)
-    async with client:
+    # Use connect()/disconnect() directly — NOT `async with client:` which calls
+    # client.start() and triggers an interactive input() prompt that fails in a container.
+    await client.connect()
+    try:
         await start_auth(client, body.phone)
+    finally:
+        await client.disconnect()
 
     return {"status": "code_sent", "message": "Check your Telegram app for the login code."}
 
@@ -244,11 +249,13 @@ async def auth_verify(body: TelegramAuthVerify, db: AsyncSession = Depends(get_d
 
     api_id, api_hash = creds
     client = make_client(api_id, api_hash)
+    await client.connect()
     try:
-        async with client:
-            await verify_auth(client, body.phone, body.code, body.password)
+        await verify_auth(client, body.phone, body.code, body.password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        await client.disconnect()
 
     return {
         "status": "authenticated",

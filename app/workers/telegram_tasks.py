@@ -110,7 +110,10 @@ def run_telegram_task(
             cancelled = False
 
             client = make_client(api_id, api_hash)
-            async with client:
+            # Use connect()/disconnect() directly — NOT `async with client:` which
+            # calls client.start() and tries interactive input() if no session exists.
+            await client.connect()
+            try:
                 logger.info("Telegram client connected | task_id=%d | channel=%s", task_id, channel)
 
                 async for message in client.iter_messages(
@@ -209,6 +212,8 @@ def run_telegram_task(
                             "Max files reached | task_id=%d | limit=%d", task_id, _max_files
                         )
                         break
+            finally:
+                await client.disconnect()
 
             if cancelled:
                 async with SessionLocal() as db:

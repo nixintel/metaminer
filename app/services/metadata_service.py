@@ -74,7 +74,7 @@ async def process_single_file(
     retain_file_opt: bool = False,
     pdf_mode: bool | None = None,
     task_id: int | None = None,
-    submission_mode: str = "single",
+    submission_mode: str = "manual",
     source_url: str | None = None,
     http_etag: str | None = None,
     http_last_modified: str | None = None,

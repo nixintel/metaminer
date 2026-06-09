@@ -1,0 +1,369 @@
+/* ── Layout ────────────────────────────────────────────────────────────────── */
+
+.app-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--pico-card-background-color);
+  border-right: 1px solid var(--pico-muted-border-color);
+  padding: 1.5rem 1rem;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar-header {
+  padding: 0.25rem 0.75rem 1.25rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--pico-primary);
+  letter-spacing: -0.02em;
+}
+
+.sidebar nav ul {
+  padding: 0;
+  list-style: none;
+  margin: 0;
+}
+
+.sidebar nav li {
+  margin: 0.1rem 0;
+}
+
+.sidebar nav a {
+  display: block;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--pico-border-radius);
+  text-decoration: none;
+  color: var(--pico-color);
+  font-size: 0.9rem;
+}
+
+.sidebar nav a:hover {
+  background: var(--pico-primary-background);
+  color: var(--pico-primary-inverse);
+  text-decoration: none;
+}
+
+.sidebar nav a.active {
+  background: var(--pico-primary);
+  color: var(--pico-primary-inverse);
+}
+
+.nav-section {
+  padding: 0.9rem 0.75rem 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--pico-muted-color);
+}
+
+.nav-indent a {
+  padding-left: 1.5rem;
+}
+
+.content {
+  padding: 2rem 2.5rem;
+  max-width: 1200px;
+}
+
+/* ── Flash messages ─────────────────────────────────────────────────────────── */
+
+.flash {
+  padding: 0.75rem 1rem;
+  border-radius: var(--pico-border-radius);
+  margin-bottom: 1rem;
+  border: 1px solid transparent;
+}
+
+.flash-success { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+.flash-error   { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.flash-info    { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.flash-warning { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+
+/* ── Badges ─────────────────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-block;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.badge-pending   { background: #e5e7eb; color: #374151; }
+.badge-running   { background: #dbeafe; color: #1d4ed8; }
+.badge-completed { background: #d1fae5; color: #065f46; }
+.badge-failed    { background: #fee2e2; color: #991b1b; }
+.badge-cancelled { background: #f3f4f6; color: #6b7280; }
+.badge-ok        { background: #d1fae5; color: #065f46; }
+.badge-error     { background: #fee2e2; color: #991b1b; }
+.badge-warning   { background: #fef3c7; color: #92400e; }
+.badge-info      { background: #dbeafe; color: #1d4ed8; }
+.badge-debug     { background: #f3f4f6; color: #6b7280; }
+
+/* ── Health grid ─────────────────────────────────────────────────────────────── */
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 2rem;
+}
+
+.health-card {
+  padding: 1.25rem;
+  border-radius: var(--pico-border-radius);
+  border: 1px solid var(--pico-muted-border-color);
+  text-align: center;
+}
+
+.health-card .label {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.health-card.status-ok    { border-color: #6ee7b7; background: #ecfdf5; }
+.health-card.status-error { border-color: #fca5a5; background: #fef2f2; }
+
+/* ── Summary stats ───────────────────────────────────────────────────────────── */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 2rem;
+}
+
+.stat-card {
+  padding: 1rem;
+  border-radius: var(--pico-border-radius);
+  border: 1px solid var(--pico-muted-border-color);
+  text-align: center;
+}
+
+.stat-card .stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 0.4rem;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────────── */
+
+table { width: 100%; }
+.actions { white-space: nowrap; text-align: right; }
+.actions a, .actions button { margin-left: 0.4rem; }
+
+/* ── Page header ─────────────────────────────────────────────────────────────── */
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.page-header h2 { margin: 0; }
+
+/* ── Filters bar ─────────────────────────────────────────────────────────────── */
+
+.filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+}
+
+.filters label { margin-bottom: 0.25rem; font-size: 0.85rem; display: block; }
+.filters select, .filters input {
+  margin-bottom: 0;
+  min-width: 140px;
+  height: 2.5rem;
+  font-size: 0.9rem;
+}
+.filters input[type="number"] { min-width: 80px; }
+.filters input[type="datetime-local"] { min-width: 200px; }
+
+/* ── Main search inputs (keyword search etc.) ────────────────────────────────── */
+
+input[type="search"] {
+  width: 100% !important;
+  font-size: 1rem !important;
+  height: 2.75rem !important;
+  padding: 0.5rem 0.75rem !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;   /* allow shrinking below intrinsic size inside flex */
+}
+
+/* Ensure all form inputs are comfortably readable */
+input, select, textarea {
+  font-size: 0.95rem !important;
+  box-sizing: border-box;
+}
+
+input[type="text"],
+input[type="url"],
+input[type="email"],
+input[type="tel"],
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="password"] {
+  width: 100%;
+}
+
+select {
+  min-height: 2.5rem;
+  width: 100%;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--pico-muted-border-color);
+  margin-bottom: 1.5rem;
+}
+
+.tabs a {
+  padding: 0.6rem 1.25rem;
+  text-decoration: none;
+  color: var(--pico-muted-color);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-size: 0.9rem;
+}
+
+.tabs a:hover { color: var(--pico-color); }
+.tabs a.active { color: var(--pico-primary); border-bottom-color: var(--pico-primary); font-weight: 600; }
+
+/* ── Query builder ───────────────────────────────────────────────────────────── */
+
+.qb-row {
+  display: grid;
+  grid-template-columns: 200px 150px 1fr;
+  gap: 0.5rem;
+  align-items: end;
+  margin-bottom: 0.5rem;
+}
+
+.qb-row select, .qb-row input { margin-bottom: 0; }
+
+/* ── Pagination ──────────────────────────────────────────────────────────────── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+  color: var(--pico-muted-color);
+}
+
+/* ── Raw JSON ────────────────────────────────────────────────────────────────── */
+
+.raw-json {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+  padding: 1rem;
+  overflow: auto;
+  font-family: monospace;
+  font-size: 0.82rem;
+  white-space: pre;
+  max-height: 500px;
+}
+
+/* ── Progress bar ────────────────────────────────────────────────────────────── */
+
+.task-progress { margin: 1rem 0; }
+.task-meta { display: flex; gap: 2rem; flex-wrap: wrap; font-size: 0.9rem; color: var(--pico-muted-color); }
+.task-meta span strong { color: var(--pico-color); }
+
+/* ── Small button variant ────────────────────────────────────────────────────── */
+
+.btn-sm {
+  padding: 0.25rem 0.75rem !important;
+  font-size: 0.8rem !important;
+}
+
+/* ── Page description ────────────────────────────────────────────────────────── */
+
+.page-desc {
+  color: var(--pico-muted-color);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--pico-muted-border-color);
+  background: var(--pico-card-background-color);
+  border-radius: 0 var(--pico-border-radius) var(--pico-border-radius) 0;
+}
+
+/* ── File upload zone ────────────────────────────────────────────────────────── */
+
+.upload-zone {
+  border: 2px dashed var(--pico-primary);
+  border-radius: var(--pico-border-radius);
+  padding: 2rem 1.5rem;
+  text-align: center;
+  background: var(--pico-card-background-color);
+  margin-bottom: 1rem;
+}
+
+.upload-zone input[type="file"] {
+  display: block;
+  width: 100%;
+  margin: 0.5rem auto 0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.upload-zone .upload-hint {
+  color: var(--pico-muted-color);
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+/* ── Tooltips ────────────────────────────────────────────────────────────────── */
+
+[data-tooltip] { cursor: help; }
+
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  border-radius: 50%;
+  background: var(--pico-muted-border-color);
+  color: var(--pico-muted-color);
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: help;
+  vertical-align: middle;
+  margin-left: 0.3em;
+}
+
+/* ── Telegram status ─────────────────────────────────────────────────────────── */
+
+.tg-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}

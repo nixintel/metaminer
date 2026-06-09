@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if schedule else 'New' }} Scheduled Crawl – Metaminer{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>{{ 'Edit Scheduled Crawl' if schedule else 'New Scheduled Crawl' }}</h2>
+  <a href="{{ url_for('scheduled_crawls_list') }}" role="button" class="outline secondary">Cancel</a>
+</div>
+
+<article style="max-width: 700px;">
+  <form action="{{ action }}" method="POST">
+    <label for="project_id">Project</label>
+    <select id="project_id" name="project_id" required>
+      <option value="">— select a project —</option>
+      {% for p in projects %}
+      <option value="{{ p.id }}" {{ 'selected' if schedule and schedule.project_id == p.id else '' }}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+
+    <label for="url">Start URL</label>
+    <input type="url" id="url" name="url" required
+           value="{{ schedule.url if schedule else '' }}"
+           placeholder="https://example.com/documents/">
+
+    <label for="frequency_seconds">Frequency (seconds)</label>
+    <input type="number" id="frequency_seconds" name="frequency_seconds" required
+           min="60" value="{{ schedule.frequency_seconds if schedule else '3600' }}">
+    <small>Minimum 60 seconds. Examples: 3600 = 1 hour, 86400 = 1 day.</small>
+
+    <label for="depth_limit">Depth Limit</label>
+    <input type="number" id="depth_limit" name="depth_limit" min="1" max="20"
+           value="{{ schedule.depth_limit if schedule else '' }}" placeholder="3">
+
+    <label>Allowed File Types (comma-separated, blank = all)</label>
+    <input type="text" name="allowed_file_types"
+           value="{{ schedule.allowed_file_types | join(',') if schedule and schedule.allowed_file_types else '' }}"
+           placeholder="PDF, DOCX, XLSX">
+
+    <fieldset>
+      <legend>Options</legend>
+      <label>
+        <input type="checkbox" name="full_download" value="1"
+               {{ 'checked' if schedule and schedule.full_download else '' }}>
+        Full download
+      </label>
+      <label>
+        <input type="checkbox" name="retain_files" value="1"
+               {{ 'checked' if schedule and schedule.retain_files else '' }}>
+        Retain files
+      </label>
+      <label>
+        <input type="checkbox" name="crawl_images" value="1"
+               {{ 'checked' if schedule and schedule.crawl_images else '' }}>
+        Crawl images
+      </label>
+      <label>
+        <input type="checkbox" name="robotstxt_obey" value="1"
+               {{ 'checked' if not schedule or schedule.robotstxt_obey else '' }}>
+        Obey robots.txt
+      </label>
+      <label>
+        <input type="checkbox" name="allow_cross_domain" value="1"
+               {{ 'checked' if schedule and schedule.allow_cross_domain else '' }}>
+        Allow cross-domain
+      </label>
+      {% if schedule %}
+      <label>
+        <input type="checkbox" name="is_active" value="1"
+               {{ 'checked' if schedule.is_active else '' }}>
+        Active
+      </label>
+      {% endif %}
+    </fieldset>
+
+    <button type="submit">{{ 'Save Changes' if schedule else 'Create Schedule' }}</button>
+  </form>
+</article>
+{% endblock %}

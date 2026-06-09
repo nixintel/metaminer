@@ -14,7 +14,7 @@ celery_app = Celery(
     broker=settings.REDIS_URL,
     backend=settings.CELERY_RESULT_BACKEND,
     include=[
-        "app.workers.bulk_tasks",
+        "app.workers.manual_tasks",
         "app.workers.crawl_tasks",
         "app.workers.telegram_tasks",
         "app.workers.maintenance_tasks",
@@ -34,21 +34,21 @@ celery_app.conf.update(
     worker_heartbeat_timeout=300,  # solo pool blocks heartbeats during crawl; suppress false drift warnings
 
     # --- Queue definitions ---
-    # bulk:        file metadata extraction (prefork workers, CPU/IO parallel)
+    # manual:      file metadata extraction (prefork workers, CPU/IO parallel)
     # crawl:       web crawling via Scrapy (solo workers, one crawl per process)
     # telegram:    Telegram channel scraping via Telethon (solo workers)
-    # maintenance: periodic housekeeping (runs on bulk workers, lightweight)
+    # maintenance: periodic housekeeping (runs on manual workers, lightweight)
     task_queues=(
-        Queue("bulk"),
+        Queue("manual"),
         Queue("crawl"),
         Queue("telegram"),
         Queue("maintenance"),
     ),
-    task_default_queue="bulk",
+    task_default_queue="manual",
 
     # Explicit routing so task dispatch never relies on caller remembering the queue name
     task_routes={
-        "metaminer.bulk_task":                              {"queue": "bulk"},
+        "metaminer.manual_task":                            {"queue": "manual"},
         "metaminer.crawl_task":                             {"queue": "crawl"},
         "metaminer.telegram_task":                          {"queue": "telegram"},
         "metaminer.purge_old_logs":                         {"queue": "maintenance"},

@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Telegram – Metaminer{% endblock %}
+
+{% block page_description %}
+<p class="page-desc">Extract metadata from files posted to Telegram channels. Requires a personal Telegram API account (free at <a href="https://my.telegram.org/apps" target="_blank" rel="noopener">my.telegram.org</a>). Set credentials once, authenticate your phone number, then submit scrape jobs or create recurring schedules.</p>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Telegram</h2>
+</div>
+
+{# ── Status ──────────────────────────────────────────────────────────────────── #}
+<h3>Status</h3>
+<div class="tg-status-grid">
+  <div class="health-card status-{{ 'ok' if status.credentials_ok else 'error' }}">
+    <div class="label">Credentials</div>
+    <span class="badge badge-{{ 'ok' if status.credentials_ok else 'error' }}">
+      {{ 'Configured' if status.credentials_ok else 'Not configured' }}
+    </span>
+  </div>
+  <div class="health-card status-{{ 'ok' if status.session_ok else 'error' }}">
+    <div class="label">Session</div>
+    <span class="badge badge-{{ 'ok' if status.session_ok else 'error' }}">
+      {{ 'Active' if status.session_ok else 'Not authenticated' }}
+    </span>
+  </div>
+</div>
+
+{# ── Credentials ─────────────────────────────────────────────────────────────── #}
+<h3>Credentials</h3>
+<article style="max-width: 500px;">
+  <p>Set your Telegram API credentials from <a href="https://my.telegram.org/apps" target="_blank" rel="noopener">my.telegram.org/apps</a>.</p>
+  <form action="{{ url_for('telegram_save_credentials') }}" method="POST">
+    <label for="api_id">API ID</label>
+    <input type="text" id="api_id" name="api_id" required placeholder="12345678">
+    <label for="api_hash">API Hash</label>
+    <input type="text" id="api_hash" name="api_hash" required placeholder="abc123...">
+    <button type="submit">Save Credentials</button>
+  </form>
+  {% if status.credentials_ok %}
+  <hr>
+  <form action="{{ url_for('telegram_remove_credentials') }}" method="POST">
+    <button type="submit" class="outline secondary"
+            hx-confirm="Remove stored Telegram credentials?">Remove Credentials</button>
+  </form>
+  {% endif %}
+</article>
+
+{# ── Authentication ───────────────────────────────────────────────────────────── #}
+{% if status.credentials_ok and not status.session_ok %}
+<h3>Authenticate</h3>
+<article style="max-width: 500px;">
+  {% if not auth_step %}
+  <p>Send a login code to your Telegram account.</p>
+  <form action="{{ url_for('telegram_auth_start_post') }}" method="POST">
+    <label for="phone">Phone Number (E.164 format)</label>
+    <input type="tel" id="phone" name="phone" required placeholder="+447911123456">
+    <button type="submit">Send Code</button>
+  </form>
+  {% else %}
+  <p>Enter the code sent to <strong>{{ auth_phone }}</strong>.</p>
+  <form action="{{ url_for('telegram_auth_verify_post') }}" method="POST">
+    <input type="hidden" name="phone" value="{{ auth_phone }}">
+    <label for="code">Login Code</label>
+    <input type="text" id="code" name="code" required placeholder="12345" autofocus>
+    <label for="password">2FA Password (if enabled)</label>
+    <input type="password" id="password" name="password" placeholder="Leave blank if no 2FA">
+    <button type="submit">Verify</button>
+  </form>
+  {% endif %}
+</article>
+{% endif %}
+
+{# ── Immediate scrapes ────────────────────────────────────────────────────────── #}
+<h3 style="margin-top: 2rem;">Scrape Jobs</h3>
+
+{% if status.credentials_ok and status.session_ok %}
+<details>
+  <summary>Submit new scrape</summary>
+  <article style="max-width: 640px; margin-top: 0.5rem;">
+    <form action="{{ url_for('telegram_submit_scrape_post') }}" method="POST">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div>
+          <label>Project</label>
+          <select name="project_id" required>
+            <option value="">— select —</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Channel / Username</label>
+          <input type="text" name="channel" required placeholder="@channelname or t.me/...">
+        </div>
+        <div>
+          <label>Max files</label>
+          <input type="number" name="max_files" placeholder="100">
+        </div>
+        <div>
+          <label>Max file size (MB)</label>
+          <input type="number" name="max_file_size_mb" placeholder="50">
+        </div>
+        <div>
+          <label>Date from</label>
+          <input type="date" name="date_from">
+        </div>
+        <div>
+          <label>Date to</label>
+          <input type="date" name="date_to">
+        </div>
+      </div>
+      <fieldset>
+        <legend>Options</legend>
+        <label><input type="checkbox" name="retain_files" value="1"> Retain files</label>
+        <label><input type="checkbox" name="deduplicate" value="1" checked> Deduplicate</label>
+        <label><input type="checkbox" name="pdf_mode" value="1"> PDF rollback mode</label>
+      </fieldset>
+      <button type="submit" style="margin-top: 0.75rem;">Start Scrape</button>
+    </form>
+  </article>
+</details>
+{% else %}
+<p>Configure credentials and authenticate before submitting scrapes.</p>
+{% endif %}
+
+<table style="margin-top: 1rem;">
+  <thead>
+    <tr><th>ID</th><th>Channel</th><th>Project</th><th>Status</th><th>Progress</th><th>Created</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for t in scrapes %}
+    <tr>
+      <td>{{ t.id }}</td>
+      <td>{{ t.telegram_channel or '—' }}</td>
+      <td>{{ t.project_id }}</td>
+      <td><span class="badge badge-{{ t.status }}">{{ t.status }}</span></td>
+      <td>{{ t.files_processed }}/{{ t.files_found }}</td>
+      <td style="font-size: 0.8rem;">{{ t.created_at[:16] | replace('T',' ') }}</td>
+      <td class="actions">
+        <a href="{{ url_for('task_detail', tid=t.id) }}" role="button" class="outline btn-sm">View</a>
+        {% if t.status in ('pending', 'running') %}
+        <form action="{{ url_for('telegram_cancel_scrape', tid=t.id) }}" method="POST" style="display:inline;">
+          <button type="submit" class="outline secondary btn-sm"
+                  hx-confirm="Cancel this scrape?">Cancel</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No scrape jobs.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{# ── Scheduled scrapes ────────────────────────────────────────────────────────── #}
+<h3 style="margin-top: 2rem;">Scheduled Scrapes</h3>
+
+{% if status.credentials_ok %}
+<details>
+  <summary>Add new schedule</summary>
+  <article style="max-width: 640px; margin-top: 0.5rem;">
+    <form action="{{ url_for('telegram_create_scheduled') }}" method="POST">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div>
+          <label>Project</label>
+          <select name="project_id" required>
+            <option value="">— select —</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Channel</label>
+          <input type="text" name="channel" required placeholder="@channelname">
+        </div>
+        <div>
+          <label>Frequency (seconds)</label>
+          <input type="number" name="frequency_seconds" required min="60" value="3600">
+        </div>
+        <div>
+          <label>Max files per run</label>
+          <input type="number" name="max_files" placeholder="100">
+        </div>
+        <div>
+          <label>Date range (days back)</label>
+          <input type="number" name="date_range_days" placeholder="7">
+        </div>
+      </div>
+      <fieldset>
+        <legend>Options</legend>
+        <label><input type="checkbox" name="retain_files" value="1"> Retain files</label>
+        <label><input type="checkbox" name="deduplicate" value="1" checked> Deduplicate</label>
+        <label><input type="checkbox" name="pdf_mode" value="1"> PDF rollback mode</label>
+      </fieldset>
+      <button type="submit" style="margin-top: 0.75rem;">Create Schedule</button>
+    </form>
+  </article>
+</details>
+{% endif %}
+
+<table style="margin-top: 1rem;">
+  <thead>
+    <tr><th>ID</th><th>Channel</th><th>Project</th><th>Frequency</th><th>Active</th><th>Next Run</th><th class="actions">Actions</th></tr>
+  </thead>
+  <tbody>
+    {% for ss in scheduled_scrapes %}
+    <tr>
+      <td>{{ ss.id }}</td>
+      <td>{{ ss.channel }}</td>
+      <td>{{ ss.project_id }}</td>
+      <td>{{ (ss.frequency_seconds // 60) }}m</td>
+      <td>
+        <form action="{{ url_for('telegram_toggle_scheduled', sid=ss.id) }}" method="POST" style="display:inline;">
+          <button type="submit" class="outline btn-sm {{ 'secondary' if not ss.is_active else '' }}">
+            {{ 'Active' if ss.is_active else 'Paused' }}
+          </button>
+        </form>
+      </td>
+      <td style="font-size: 0.8rem;">{{ ss.next_run_at[:16] | replace('T',' ') if ss.next_run_at else '—' }}</td>
+      <td class="actions">
+        <form action="{{ url_for('telegram_delete_scheduled', sid=ss.id) }}" method="POST" style="display:inline;">
+          <button type="submit" class="outline secondary btn-sm"
+                  hx-confirm="Delete this schedule?">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No scheduled scrapes.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

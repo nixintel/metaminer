@@ -15,7 +15,7 @@ class Task(Base):
     project_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
-    task_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'bulk' | 'crawl'
+    task_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'manual' | 'crawl' | 'telegram'
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
     )  # pending | running | completed | failed | cancelled
