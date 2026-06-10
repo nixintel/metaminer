@@ -44,7 +44,11 @@ async def healthcheck(response: Response):
     all_ok = all(v == "ok" or v.startswith("ok") for v in status.values())
     status["status"] = "ok" if all_ok else "degraded"
 
-    if not all_ok:
+    # Only return 503 if DB or Redis are down — the API cannot function without them.
+    # exiftool being missing degrades functionality but doesn't warrant 503, which
+    # would cause Docker to mark the container unhealthy and block the frontend.
+    critical_ok = status["db"].startswith("ok") and status["redis"].startswith("ok")
+    if not critical_ok:
         response.status_code = 503
 
     return status

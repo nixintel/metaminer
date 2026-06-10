@@ -104,17 +104,25 @@ async def drain_log_queue():
     from app.models.log_entry import LogEntry
 
     logger = logging.getLogger("metaminer.log_drain")
-    r = redis_lib.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+    r = redis_lib.Redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_timeout=3,
+        socket_connect_timeout=3,
+    )
 
     while True:
         try:
             await asyncio.sleep(2)
 
-            # Pop up to 100 items from the right of the list (FIFO — workers lpush)
+            # Pop up to 100 items from the right of the list (FIFO — workers lpush).
+            # pipe.execute() is a blocking sync call; run it in a thread pool so it
+            # never blocks the async event loop (critical on machines where Redis has
+            # any network latency).
             pipe = r.pipeline()
             for _ in range(100):
                 pipe.rpop(LOG_QUEUE_KEY)
-            raw_items = [item for item in pipe.execute() if item is not None]
+            raw_items = [item for item in await asyncio.to_thread(pipe.execute) if item is not None]
 
             if not raw_items:
                 continue

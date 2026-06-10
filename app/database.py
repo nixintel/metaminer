@@ -29,6 +29,10 @@ _MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS crawl_jobdir TEXT",
     # Added in v0.4: per-crawl cross-domain link following toggle
     "ALTER TABLE scheduled_crawls ADD COLUMN IF NOT EXISTS allow_cross_domain BOOLEAN NOT NULL DEFAULT FALSE",
+    # Added in v0.5: indices on log_entries filter columns (task_id, submission_id)
+    # to avoid full table scans when viewing logs for a specific task or submission.
+    "CREATE INDEX IF NOT EXISTS ix_log_entries_task_id ON log_entries (task_id)",
+    "CREATE INDEX IF NOT EXISTS ix_log_entries_submission_id ON log_entries (submission_id)",
 ]
 
 
