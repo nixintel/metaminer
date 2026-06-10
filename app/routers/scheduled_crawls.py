@@ -26,7 +26,7 @@ async def create_scheduled_crawl(
 
     schedule = ScheduledCrawl(
         project_id=body.project_id,
-        url=body.url,
+        url=json.dumps(body.urls),
         frequency_seconds=body.frequency_seconds,
         depth_limit=body.depth_limit,
         allowed_file_types=json.dumps(body.allowed_file_types) if body.allowed_file_types else None,
@@ -35,7 +35,6 @@ async def create_scheduled_crawl(
         crawl_images=body.crawl_images,
         robotstxt_obey=body.robotstxt_obey,
         allow_cross_domain=body.allow_cross_domain,
-        # next_run_at defaults to now, so it is picked up on the next dispatch tick
         next_run_at=datetime.now(timezone.utc),
     )
     db.add(schedule)
@@ -75,12 +74,13 @@ async def update_scheduled_crawl(
         raise HTTPException(status_code=404, detail="Scheduled crawl not found")
 
     for field, value in body.model_dump(exclude_unset=True).items():
-        if field == "allowed_file_types":
-            setattr(schedule, field, json.dumps(value) if value is not None else None)
+        if field == "urls":
+            schedule.url = json.dumps(value)
+        elif field == "allowed_file_types":
+            schedule.allowed_file_types = json.dumps(value) if value is not None else None
         else:
             setattr(schedule, field, value)
 
-    # If frequency changed, recalculate next_run_at from last_run_at (or now)
     if body.frequency_seconds is not None:
         base = schedule.last_run_at or datetime.now(timezone.utc)
         schedule.next_run_at = base + timedelta(seconds=schedule.frequency_seconds)

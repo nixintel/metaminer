@@ -16,10 +16,14 @@
       {% endfor %}
     </select>
 
-    <label for="url">Start URL</label>
-    <input type="url" id="url" name="url" required
-           value="{{ schedule.url if schedule else '' }}"
-           placeholder="https://example.com/documents/">
+    <label for="urls">
+      Start URLs
+      <span class="help-icon" data-tooltip="One URL per line. Each site is crawled in sequence on every scheduled run. A failure on one URL does not prevent the others from running.">?</span>
+    </label>
+    <textarea id="urls" name="urls" rows="4" required
+              placeholder="https://example.com/documents/&#10;https://other-site.org/reports/"
+              style="width: 100%; font-family: monospace; font-size: 0.9rem;">{{ schedule.urls | join('\n') if schedule else '' }}</textarea>
+    <small>One URL per line.</small>
 
     <label for="frequency_seconds">Frequency (seconds)</label>
     <input type="number" id="frequency_seconds" name="frequency_seconds" required

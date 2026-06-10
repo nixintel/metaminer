@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -15,6 +16,8 @@ class ScheduledCrawl(Base):
     project_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
+    # Stored as a JSON array string e.g. '["https://a.com","https://b.com"]'.
+    # Old records may contain a plain URL string — the `urls` property handles both.
     url: Mapped[str] = mapped_column(Text, nullable=False)
     frequency_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -34,3 +37,14 @@ class ScheduledCrawl(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     project: Mapped["Project"] = relationship("Project")
+
+    @property
+    def urls(self) -> list[str]:
+        """Return the list of start URLs. Handles both JSON-array and legacy plain-string format."""
+        try:
+            parsed = json.loads(self.url)
+            if isinstance(parsed, list):
+                return [u for u in parsed if u]
+        except Exception:
+            pass
+        return [self.url] if self.url else []

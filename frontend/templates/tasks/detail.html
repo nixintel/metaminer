@@ -17,7 +17,12 @@
 <article>
   <header>
     <strong>{{ task.task_type | title }} Task</strong>
-    {% if task.crawl_url %}— <a href="{{ task.crawl_url }}" target="_blank">{{ task.crawl_url }}</a>{% endif %}
+    {% if task.crawl_urls %}
+      —
+      {% for u in task.crawl_urls %}
+        <a href="{{ u }}" target="_blank">{{ u }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    {% endif %}
     {% if task.telegram_channel %}— {{ task.telegram_channel }}{% endif %}
   </header>
 

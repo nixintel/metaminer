@@ -71,12 +71,12 @@ def submit_manual(project_id, paths, retain_files=False, pdf_mode=False):
 
 # ── Crawl ─────────────────────────────────────────────────────────────────────
 
-def submit_crawl(project_id, url, depth_limit=None, allowed_file_types=None,
+def submit_crawl(project_id, urls, depth_limit=None, allowed_file_types=None,
                  full_download=False, retain_files=False, deduplicate=True,
                  robotstxt_obey=True, crawl_images=False, allow_cross_domain=False):
     return _post("/crawl", json={
         "project_id": project_id,
-        "url": url,
+        "urls": urls if isinstance(urls, list) else [urls],
         "depth_limit": depth_limit,
         "allowed_file_types": allowed_file_types or [],
         "full_download": full_download,
@@ -130,8 +130,8 @@ def list_scheduled_crawls(project_id=None):
 def get_scheduled_crawl(sid):
     return _get(f"/scheduled-crawls/{sid}")
 
-def create_scheduled_crawl(**kwargs):
-    return _post("/scheduled-crawls", json=kwargs)
+def create_scheduled_crawl(urls, **kwargs):
+    return _post("/scheduled-crawls", json={"urls": urls if isinstance(urls, list) else [urls], **kwargs})
 
 def update_scheduled_crawl(sid, **kwargs):
     payload = {k: v for k, v in kwargs.items() if v is not None}

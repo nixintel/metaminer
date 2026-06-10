@@ -45,13 +45,15 @@ def dispatch_scheduled_crawls():
                         pass
 
                 # Create a Task record so the crawl is tracked in the UI
+                urls = schedule.urls  # list[str] via model property
+
                 async with SessionLocal() as db:
                     import json as _json
                     task = Task(
                         project_id=schedule.project_id,
                         task_type="crawl",
                         config_json=_json.dumps({
-                            "url": schedule.url,
+                            "urls": urls,
                             "depth_limit": schedule.depth_limit,
                             "allowed_file_types": allowed_file_types,
                             "full_download": schedule.full_download,
@@ -68,7 +70,7 @@ def dispatch_scheduled_crawls():
                     celery_result = run_crawl_task.delay(
                         task_id,
                         schedule.project_id,
-                        schedule.url,
+                        urls,
                         schedule.depth_limit,
                         allowed_file_types,
                         schedule.full_download,
@@ -90,9 +92,9 @@ def dispatch_scheduled_crawls():
                         await db.commit()
 
                 logger.info(
-                    "Dispatched scheduled crawl | schedule_id=%d | url=%s | "
+                    "Dispatched scheduled crawl | schedule_id=%d | urls=%s | "
                     "task_id=%d | next_run_at=%s",
-                    schedule.id, schedule.url, task_id,
+                    schedule.id, urls, task_id,
                     now + timedelta(seconds=schedule.frequency_seconds),
                 )
         finally:

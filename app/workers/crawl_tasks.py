@@ -4,6 +4,12 @@ Celery task for web crawling.
 Scrapy's Twisted reactor cannot be restarted once stopped, so each crawl task
 runs Scrapy in a fresh subprocess via multiprocessing.Process to avoid
 'reactor already started' errors across multiple task executions.
+
+Multi-URL support: the task accepts a list of start URLs and crawls each in
+sequence. If a URL fails, it is retried up to PER_URL_RETRIES times with a
+short delay. After all retries are exhausted the failure is logged and the
+next URL is attempted. The overall task only enters a hard failure state if
+an infrastructure-level exception occurs (database unreachable, etc.).
 """
 import asyncio
 import logging
@@ -16,6 +22,9 @@ from app.workers.celery_app import celery_app
 from app.utils.cancel import check_cancel_flag, clear_cancel_flag
 
 logger = logging.getLogger("metaminer.crawl_tasks")
+
+PER_URL_RETRIES = 2        # additional attempts after the first failure
+PER_URL_RETRY_DELAY = 30   # seconds between per-URL retry attempts
 
 
 def _run_scrapy_in_process(
@@ -37,12 +46,6 @@ def _run_scrapy_in_process(
         from config import settings as cfg
         from urllib.parse import urlparse, urlunparse
 
-        # Build the full Scrapy settings dict here so they are actually applied.
-        # custom_settings on the spider class is read by Scrapy BEFORE __init__,
-        # so instance-level overrides in __init__ are silently ignored.
-        # Passing settings to CrawlerProcess applies them at project priority (20),
-        # which is lower than spider custom_settings (30) — middlewares in
-        # custom_settings still win — but higher than Scrapy defaults (0).
         process_settings = {
             **( {"JOBDIR": jobdir} if jobdir else {} ),
             "DEPTH_LIMIT": depth_limit if depth_limit is not None else cfg.CRAWLER_DEPTH_LIMIT,
@@ -80,7 +83,7 @@ def _run_scrapy_in_process(
 
         class _TrackingSpider(MetaminerSpider):
             def closed(self, reason):
-                super().closed(reason)  # emits {"type":"done",...} on self._result_queue
+                super().closed(reason)
 
         process = CrawlerProcess(settings=process_settings)
         follow_images = crawl_images if crawl_images is not None else cfg.CRAWLER_FOLLOW_IMAGE_TAGS
@@ -100,13 +103,201 @@ def _run_scrapy_in_process(
         result_queue.put({"error": str(e)})
 
 
+class _TaskCancelled(Exception):
+    """Raised inside _crawl_one_url when a cancellation flag is detected."""
+    pass
+
+
+async def _crawl_one_url(
+    *,
+    url: str,
+    url_idx: int,
+    task_id: int,
+    project_id: int,
+    depth_limit,
+    allowed_file_types,
+    full_download,
+    retain_files,
+    deduplicate,
+    robotstxt_obey,
+    crawl_images,
+    allow_cross_domain,
+    SessionLocal,
+    settings,
+) -> dict:
+    """
+    Run Scrapy for a single URL.
+    Returns a stats dict on success.
+    Raises _TaskCancelled if the task cancellation flag is set.
+    Raises on any other crawl failure so the caller can retry.
+    """
+    import queue as _queue
+    from app.crawler.download_manager import process_one_crawl_file
+    from app.models.task import Task
+
+    jobdir = str(settings.TEMP_DIR.parent / "crawl_jobs" / f"task_{task_id}_url_{url_idx}")
+    output_dir = str(settings.TEMP_DIR / f"crawl_{task_id}_url_{url_idx}")
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    Path(jobdir).mkdir(parents=True, exist_ok=True)
+
+    resuming = any(Path(jobdir).iterdir()) if Path(jobdir).exists() else False
+    logger.info(
+        "%s Scrapy job | task_id=%d | url_idx=%d | url=%s | jobdir=%s",
+        "Resuming" if resuming else "Starting", task_id, url_idx, url, jobdir,
+    )
+
+    ctx = multiprocessing.get_context("spawn")
+    result_queue = ctx.Queue()
+
+    logger.info(
+        "Launching Scrapy subprocess | task_id=%d | url=%s | output_dir=%s",
+        task_id, url, output_dir,
+    )
+
+    proc = ctx.Process(
+        target=_run_scrapy_in_process,
+        args=(url, allowed_file_types, depth_limit, full_download, output_dir,
+              result_queue, robotstxt_obey, crawl_images, jobdir, allow_cross_domain),
+        daemon=False,
+    )
+    proc.start()
+
+    files_seen = 0
+    processed = 0
+    errors = 0
+    skipped_duplicates = 0
+    crawl_done = False
+    crawl_done_msg: dict = {}
+
+    async def _handle_file_msg(msg: dict):
+        nonlocal processed, errors, skipped_duplicates, files_seen
+        files_seen += 1
+        outcome = await process_one_crawl_file(
+            file_path=msg["path"],
+            source_url=msg["source_url"],
+            etag=msg["etag"],
+            last_modified=msg["last_modified"],
+            project_id=project_id,
+            task_id=task_id,
+            retain_files=retain_files,
+            pdf_mode=None,
+            deduplicate=deduplicate,
+            session_factory=SessionLocal,
+        )
+        if outcome == "processed":
+            processed += 1
+        elif outcome == "skipped":
+            skipped_duplicates += 1
+        else:
+            errors += 1
+
+        if (processed + skipped_duplicates) % 10 == 0:
+            async with SessionLocal() as db:
+                t = await db.get(Task, task_id)
+                if t:
+                    t.files_processed = processed
+                    t.skipped_duplicates = skipped_duplicates
+                    await db.commit()
+
+    try:
+        while True:
+            while True:
+                try:
+                    msg = result_queue.get_nowait()
+                except _queue.Empty:
+                    break
+                if msg.get("type") == "file":
+                    await _handle_file_msg(msg)
+                elif msg.get("type") == "done":
+                    crawl_done = True
+                    crawl_done_msg = msg
+                elif "error" in msg:
+                    raise RuntimeError(f"Scrapy process error: {msg['error']}")
+
+            if crawl_done and not proc.is_alive():
+                break
+
+            if check_cancel_flag(task_id):
+                logger.info(
+                    "Cancellation requested | task_id=%d | terminating subprocess",
+                    task_id,
+                )
+                proc.terminate()
+                proc.join(timeout=10)
+                if proc.is_alive():
+                    logger.warning(
+                        "Subprocess did not exit after SIGTERM, sending SIGKILL | task_id=%d",
+                        task_id,
+                    )
+                    proc.kill()
+                    proc.join(timeout=5)
+                raise _TaskCancelled()
+
+            time.sleep(1)
+
+        logger.info(
+            "Scrapy subprocess exited | task_id=%d | url=%s | exit_code=%s",
+            task_id, url, proc.exitcode,
+        )
+
+        # Final drain: process any messages that arrived between the last
+        # get_nowait() and subprocess exit.
+        while True:
+            try:
+                msg = result_queue.get_nowait()
+            except _queue.Empty:
+                break
+            if msg.get("type") == "file":
+                await _handle_file_msg(msg)
+            elif msg.get("type") == "done":
+                crawl_done = True
+                crawl_done_msg = msg
+            elif "error" in msg:
+                raise RuntimeError(f"Scrapy process error: {msg['error']}")
+
+    finally:
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=5)
+        import shutil
+        shutil.rmtree(output_dir, ignore_errors=True)
+
+    failure_count = crawl_done_msg.get("failure_count", 0)
+
+    if crawl_done_msg.get("failed_urls"):
+        for item in crawl_done_msg["failed_urls"]:
+            logger.warning(
+                "Crawl request failure | task_id=%d | url=%s | error=%s",
+                task_id, item.get("url"), item.get("error"),
+            )
+
+    logger.info(
+        "URL crawl complete | task_id=%d | url=%s | "
+        "files_seen=%d | request_failures=%d | closed_reason=%s",
+        task_id, url, files_seen,
+        failure_count, crawl_done_msg.get("closed_reason"),
+    )
+
+    import shutil
+    shutil.rmtree(jobdir, ignore_errors=True)
+
+    return {
+        "files_seen": files_seen,
+        "processed": processed,
+        "errors": errors,
+        "skipped": skipped_duplicates,
+        "failure_count": failure_count,
+        "failed_urls": crawl_done_msg.get("failed_urls", []),
+    }
+
+
 @celery_app.task(bind=True, name="metaminer.crawl_task", queue="crawl",
                  acks_late=True, max_retries=3, default_retry_delay=60)
 def run_crawl_task(
     self,
     task_id: int,
     project_id: int,
-    url: str,
+    urls: list[str],
     depth_limit: int | None = None,
     allowed_file_types: list[str] | None = None,
     full_download: bool = False,
@@ -119,15 +310,13 @@ def run_crawl_task(
     from config import settings
 
     async def _run():
-        import queue as _queue
         from app.database import make_task_session_factory
         from app.models.task import Task
-        from app.crawler.download_manager import process_one_crawl_file
 
         logger.info(
-            "Crawl task starting | task_id=%d | url=%s | depth_limit=%s | "
+            "Crawl task starting | task_id=%d | urls=%s | depth_limit=%s | "
             "file_types=%s | deduplicate=%s | retain_files=%s | full_download=%s",
-            task_id, url, depth_limit, allowed_file_types,
+            task_id, urls, depth_limit, allowed_file_types,
             deduplicate, retain_files, full_download,
         )
 
@@ -146,125 +335,92 @@ def run_crawl_task(
                     return
                 task.status = "running"
                 task.started_at = datetime.now(timezone.utc)
-                # Persist jobdir path so it survives worker crashes — Scrapy can
-                # resume from this dir if the task is re-queued after a crash.
-                jobdir = str(settings.TEMP_DIR.parent / "crawl_jobs" / f"task_{task_id}")
-                task.crawl_jobdir = jobdir
+                task.crawl_jobdir = str(
+                    settings.TEMP_DIR.parent / "crawl_jobs" / f"task_{task_id}"
+                )
                 await db.commit()
 
-            Path(jobdir).mkdir(parents=True, exist_ok=True)
-            resuming = any(Path(jobdir).iterdir()) if Path(jobdir).exists() else False
-            logger.info(
-                "%s Scrapy job | task_id=%d | jobdir=%s",
-                "Resuming" if resuming else "Starting", task_id, jobdir,
-            )
-
-            # Run Scrapy in an isolated child process.
-            # Use 'spawn' (not 'fork') so the child starts with a clean asyncio
-            # state — forking inside asyncio.run() hands the child a half-open
-            # event loop that Scrapy/Twisted can't use, causing an instant exit.
-            ctx = multiprocessing.get_context("spawn")
-            result_queue: multiprocessing.Queue = ctx.Queue()
-            output_dir = str(settings.TEMP_DIR / f"crawl_{task_id}")
-            Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-            logger.info(
-                "Launching Scrapy subprocess | task_id=%d | url=%s | output_dir=%s",
-                task_id, url, output_dir,
-            )
-
-            proc = ctx.Process(
-                target=_run_scrapy_in_process,
-                args=(url, allowed_file_types, depth_limit, full_download, output_dir, result_queue, robotstxt_obey, crawl_images, jobdir, allow_cross_domain),
-                daemon=False,
-            )
-            proc.start()
-
-            # Stream results from the queue as files are downloaded.
-            # Per-file events ("type":"file") are processed immediately;
-            # the "done" event signals the crawl is complete.
-            files_seen = 0
-            processed = 0
-            errors = 0
-            skipped_duplicates = 0
-            crawl_done = False
-            crawl_done_msg: dict = {}
+            total_files_seen = 0
+            total_processed = 0
+            total_errors = 0
+            total_skipped = 0
+            total_failure_count = 0
+            all_failed_url_items: list[dict] = []
+            urls_exhausted: list[dict] = []
             cancelled = False
 
-            async def _handle_file_msg(msg: dict):
-                nonlocal processed, errors, skipped_duplicates, files_seen
-                files_seen += 1
-                outcome = await process_one_crawl_file(
-                    file_path=msg["path"],
-                    source_url=msg["source_url"],
-                    etag=msg["etag"],
-                    last_modified=msg["last_modified"],
-                    project_id=project_id,
-                    task_id=task_id,
-                    retain_files=retain_files,
-                    pdf_mode=None,
-                    deduplicate=deduplicate,
-                    session_factory=SessionLocal,
-                )
-                if outcome == "processed":
-                    processed += 1
-                elif outcome == "skipped":
-                    skipped_duplicates += 1
-                else:
-                    errors += 1
-
-                # Write incremental progress every 10 files
-                if (processed + skipped_duplicates) % 10 == 0:
-                    async with SessionLocal() as db:
-                        t = await db.get(Task, task_id)
-                        if t:
-                            t.files_processed = processed
-                            t.skipped_duplicates = skipped_duplicates
-                            await db.commit()
-
-            while True:
-                # Drain all messages currently available without blocking
-                while True:
-                    try:
-                        msg = result_queue.get_nowait()
-                    except _queue.Empty:
-                        break
-
-                    if msg.get("type") == "file":
-                        await _handle_file_msg(msg)
-                    elif msg.get("type") == "done":
-                        crawl_done = True
-                        crawl_done_msg = msg
-                    elif "error" in msg:
-                        raise RuntimeError(f"Scrapy process error: {msg['error']}")
-
-                if crawl_done and not proc.is_alive():
-                    break
-
+            for url_idx, url in enumerate(urls):
                 if check_cancel_flag(task_id):
-                    logger.info(
-                        "Cancellation requested | task_id=%d | terminating subprocess",
-                        task_id,
-                    )
-                    proc.terminate()
-                    proc.join(timeout=10)
-                    if proc.is_alive():
-                        logger.warning(
-                            "Subprocess did not exit after SIGTERM, sending SIGKILL | task_id=%d",
-                            task_id,
-                        )
-                        proc.kill()
-                        proc.join(timeout=5)
                     cancelled = True
                     break
 
-                time.sleep(1)
+                logger.info(
+                    "Processing URL %d/%d | task_id=%d | url=%s",
+                    url_idx + 1, len(urls), task_id, url,
+                )
 
-            logger.info(
-                "Scrapy subprocess exited | task_id=%d | exit_code=%s | cancelled=%s",
-                task_id, proc.exitcode, cancelled,
-            )
+                for attempt in range(PER_URL_RETRIES + 1):
+                    if check_cancel_flag(task_id):
+                        cancelled = True
+                        break
+                    try:
+                        result = await _crawl_one_url(
+                            url=url,
+                            url_idx=url_idx,
+                            task_id=task_id,
+                            project_id=project_id,
+                            depth_limit=depth_limit,
+                            allowed_file_types=allowed_file_types,
+                            full_download=full_download,
+                            retain_files=retain_files,
+                            deduplicate=deduplicate,
+                            robotstxt_obey=robotstxt_obey,
+                            crawl_images=crawl_images,
+                            allow_cross_domain=allow_cross_domain,
+                            SessionLocal=SessionLocal,
+                            settings=settings,
+                        )
+                        total_files_seen += result["files_seen"]
+                        total_processed += result["processed"]
+                        total_errors += result["errors"]
+                        total_skipped += result["skipped"]
+                        total_failure_count += result["failure_count"]
+                        all_failed_url_items.extend(result["failed_urls"])
+                        break  # success — move to next URL
+                    except _TaskCancelled:
+                        cancelled = True
+                        break
+                    except Exception as e:
+                        if attempt < PER_URL_RETRIES:
+                            logger.warning(
+                                "URL crawl failed (attempt %d/%d), retrying in %ds | "
+                                "task_id=%d | url=%s | error=%s",
+                                attempt + 1, PER_URL_RETRIES + 1,
+                                PER_URL_RETRY_DELAY, task_id, url, e,
+                            )
+                            await asyncio.sleep(PER_URL_RETRY_DELAY)
+                        else:
+                            logger.error(
+                                "URL crawl failed after %d attempt(s), skipping | "
+                                "task_id=%d | url=%s | error=%s",
+                                PER_URL_RETRIES + 1, task_id, url, e,
+                                exc_info=True,
+                            )
+                            urls_exhausted.append({"url": url, "error": str(e)})
 
+                if cancelled:
+                    break
+
+                # Update cumulative progress in the DB after each URL completes
+                async with SessionLocal() as db:
+                    t = await db.get(Task, task_id)
+                    if t:
+                        t.files_found = total_files_seen
+                        t.files_processed = total_processed
+                        t.skipped_duplicates = total_skipped
+                        await db.commit()
+
+            # ── Terminal state ──────────────────────────────────────────────
             if cancelled:
                 async with SessionLocal() as db:
                     task = await db.get(Task, task_id)
@@ -273,80 +429,47 @@ def run_crawl_task(
                         task.crawl_jobdir = None
                         task.completed_at = datetime.now(timezone.utc)
                         await db.commit()
-                import shutil; shutil.rmtree(jobdir, ignore_errors=True)
                 return
 
-            # Final drain: process any messages that arrived between the last
-            # get_nowait() call and the subprocess exit.
-            while True:
-                try:
-                    msg = result_queue.get_nowait()
-                except _queue.Empty:
-                    break
-                if msg.get("type") == "file":
-                    await _handle_file_msg(msg)
-                elif msg.get("type") == "done":
-                    crawl_done = True
-                    crawl_done_msg = msg
-                elif "error" in msg:
-                    raise RuntimeError(f"Scrapy process error: {msg['error']}")
+            has_any_error = bool(urls_exhausted) or total_errors > 0
+            final_status = "failed" if has_any_error else "completed"
 
-            failure_count = crawl_done_msg.get("failure_count", 0)
+            error_parts = []
+            if urls_exhausted:
+                failed_list = ", ".join(item["url"] for item in urls_exhausted)
+                error_parts.append(f"URLs that failed all retries: {failed_list}")
+            if total_errors:
+                error_parts.append(f"{total_errors} file(s) failed to process")
 
             logger.info(
-                "Scrapy crawl complete | task_id=%d | url=%s | "
-                "files_seen=%d | request_failures=%d | closed_reason=%s",
-                task_id, url, files_seen,
-                failure_count, crawl_done_msg.get("closed_reason"),
-            )
-
-            if crawl_done_msg.get("failed_urls"):
-                for item in crawl_done_msg["failed_urls"]:
-                    logger.warning(
-                        "Crawl request failure | task_id=%d | url=%s | error=%s",
-                        task_id, item.get("url"), item.get("error"),
-                    )
-
-            final_status = "completed" if errors == 0 else "completed_with_errors"
-            logger.info(
-                "Crawl task complete | task_id=%d | url=%s | status=%s | "
-                "files_seen=%d | processed=%d | skipped=%d | errors=%d",
-                task_id, url, final_status,
-                files_seen, processed, skipped_duplicates, errors,
+                "Crawl task complete | task_id=%d | status=%s | urls=%d | "
+                "files_seen=%d | processed=%d | skipped=%d | "
+                "file_errors=%d | urls_failed=%d",
+                task_id, final_status, len(urls),
+                total_files_seen, total_processed, total_skipped,
+                total_errors, len(urls_exhausted),
             )
 
             async with SessionLocal() as db:
                 task = await db.get(Task, task_id)
                 if task:
-                    task.status = "completed" if errors == 0 else "failed"
-                    task.files_found = files_seen
-                    task.files_processed = processed
-                    task.skipped_duplicates = skipped_duplicates
-                    task.crawl_failures = failure_count
+                    task.status = final_status
+                    task.files_found = total_files_seen
+                    task.files_processed = total_processed
+                    task.skipped_duplicates = total_skipped
+                    task.crawl_failures = total_failure_count
                     task.completed_at = datetime.now(timezone.utc)
-                    if errors:
-                        task.error_message = f"{errors} file(s) failed to process"
-                    if crawl_done_msg.get("failed_urls"):
-                        previous = task.crawl_errors or ""
-                        task.crawl_errors = ", ".join(filter(None, [previous, str(crawl_done_msg.get("failed_urls"))]))
-                    if errors == 0:
-                        # Crawl completed successfully — jobdir no longer needed
-                        task.crawl_jobdir = None
+                    task.crawl_jobdir = None
+                    if error_parts:
+                        task.error_message = "; ".join(error_parts)
+                    combined_failures = all_failed_url_items + urls_exhausted
+                    if combined_failures:
+                        task.crawl_errors = str(combined_failures)
                     await db.commit()
 
-            if errors == 0:
-                import shutil; shutil.rmtree(jobdir, ignore_errors=True)
         finally:
             clear_cancel_flag(task_id)
             await task_engine.dispose()
-            # Remove the per-crawl temp directory. Use rmtree rather than rmdir
-            # because retain_file() copies (not moves) files, so originals can
-            # remain when retain_files=True; the retained copy is already safe.
-            try:
-                import shutil
-                shutil.rmtree(output_dir, ignore_errors=True)
-            except Exception:
-                pass
 
     try:
         asyncio.run(_run())

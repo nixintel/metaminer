@@ -2,7 +2,7 @@
 {% block title %}Web Crawl – Metaminer{% endblock %}
 
 {% block page_description %}
-<p class="page-desc">Crawl a website and automatically extract metadata from any files it links to. The crawler follows links up to the configured depth, downloads matching file types, and queues metadata extraction. Processing runs in the background.</p>
+<p class="page-desc">Crawl one or more websites and automatically extract metadata from any files they link to. The crawler follows links up to the configured depth, downloads matching file types, and queues metadata extraction. Processing runs in the background.</p>
 {% endblock %}
 
 {% block content %}
@@ -20,21 +20,25 @@
       {% endfor %}
     </select>
 
-    <label for="url">Start URL</label>
-    <input type="url" id="url" name="url" required placeholder="https://example.com/documents/"
-           value="{{ form.get('url', '') }}">
-    <small>The crawler begins here and follows links outward up to the configured depth.</small>
+    <label for="urls">
+      Start URLs
+      <span class="help-icon" data-tooltip="Enter one URL per line. Each URL is crawled in sequence. If one fails it will be retried automatically before moving on to the next.">?</span>
+    </label>
+    <textarea id="urls" name="urls" rows="4" required
+              placeholder="https://example.com/documents/&#10;https://other-site.org/reports/"
+              style="width: 100%; font-family: monospace; font-size: 0.9rem;">{{ form.get('urls', '') }}</textarea>
+    <small>One URL per line. Each site is crawled independently; a failure on one does not stop the others.</small>
 
     <label for="depth_limit">
       Depth Limit
-      <span class="help-icon" data-tooltip="How many link-levels deep to follow from the start URL. Depth 1 = only files directly linked from the start page. Depth 3 (default) follows links three levels deep. Higher values increase crawl time significantly.">?</span>
+      <span class="help-icon" data-tooltip="How many link-levels deep to follow from each start URL. Depth 1 = only files directly linked from the start page. Higher values increase crawl time significantly.">?</span>
     </label>
     <input type="number" id="depth_limit" name="depth_limit" min="1" max="20" placeholder="3 (default)"
            value="{{ form.get('depth_limit', '') }}">
 
     <label>
       Allowed File Types
-      <span class="help-icon" data-tooltip="Only download files with these extensions. Leave all unchecked to allow any file type the crawler encounters. Restricting types makes crawls faster and more targeted.">?</span>
+      <span class="help-icon" data-tooltip="Only download files with these extensions. Leave all unchecked to allow any file type the crawler encounters.">?</span>
     </label>
     <small>Check the types you want. Leave all unchecked to allow everything. You can also type custom extensions below.</small>
     <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.25rem; margin: 0.5rem 0 0.25rem;">
@@ -54,11 +58,10 @@
     <fieldset style="margin-top: 1.25rem;">
       <legend>Options</legend>
 
-      <label data-tooltip="Full download: fetch the complete file before extracting metadata. Partial download (the default): only fetch the first 10 MB, which is usually enough for header metadata and much faster. Enable this if you need metadata fields that appear later in the file.">
+      <label data-tooltip="Full download: fetch the complete file before extracting metadata. Partial download (the default): only fetch the first 10 MB, which is usually enough for header metadata and much faster.">
         <input type="checkbox" name="full_download" value="1"
                {{ 'checked' if form.get('full_download') else '' }}>
         Full download
-        <span class="help-icon" data-tooltip="Full download: fetch the complete file before extracting metadata. Partial download (the default): only fetch the first 10 MB, which is usually enough for header metadata and much faster.">?</span>
       </label>
 
       <label data-tooltip="Keep downloaded files on disk after extraction. Without this option, files are saved to a temp folder and deleted after processing.">
@@ -79,13 +82,13 @@
         Obey robots.txt
       </label>
 
-      <label data-tooltip="Also follow &lt;img src&gt; tags to discover images embedded in pages, in addition to standard &lt;a href&gt; links. Increases the number of requests significantly — most useful when the target hosts image files you want to analyse.">
+      <label data-tooltip="Also follow img tags to discover images embedded in pages, in addition to standard link tags.">
         <input type="checkbox" name="crawl_images" value="1"
                {{ 'checked' if form.get('crawl_images') else '' }}>
         Crawl images
       </label>
 
-      <label data-tooltip="Follow links to domains other than the start URL's domain. Disabled by default to keep the crawl scoped to the target site. Enable with caution — it can cause the crawl to expand very broadly.">
+      <label data-tooltip="Follow links to domains other than the start URL's domain. Disabled by default to keep the crawl scoped to the target site.">
         <input type="checkbox" name="allow_cross_domain" value="1"
                {{ 'checked' if form.get('allow_cross_domain') else '' }}>
         Allow cross-domain links

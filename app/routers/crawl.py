@@ -22,7 +22,7 @@ async def submit_crawl(body: CrawlSubmit, db: AsyncSession = Depends(get_db)):
         project_id=body.project_id,
         task_type="crawl",
         config_json=json.dumps({
-            "url": body.url,
+            "urls": body.urls,
             "depth_limit": body.depth_limit,
             "allowed_file_types": body.allowed_file_types,
             "full_download": body.full_download,
@@ -40,7 +40,7 @@ async def submit_crawl(body: CrawlSubmit, db: AsyncSession = Depends(get_db)):
     celery_result = run_crawl_task.delay(
         task.id,
         body.project_id,
-        body.url,
+        body.urls,
         body.depth_limit,
         body.allowed_file_types,
         body.full_download,

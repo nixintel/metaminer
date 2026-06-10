@@ -185,16 +185,18 @@ def submit_crawl():
 @app.post("/submit/crawl")
 def submit_crawl_post():
     project_id = request.form.get("project_id", type=int)
-    url = request.form.get("url", "").strip()
     depth_limit = request.form.get("depth_limit", type=int)
     file_types = request.form.getlist("allowed_file_types")
     extra = [t.strip().upper() for t in request.form.get("extra_types", "").split(",") if t.strip()]
     all_types = list(set(file_types + extra))
 
+    urls_raw = request.form.get("urls", "")
+    urls = [u.strip() for u in urls_raw.splitlines() if u.strip()]
+
     # Capture all submitted values so we can re-populate the form on error
     form = {
         "project_id": str(project_id or ""),
-        "url": url,
+        "urls": urls_raw,
         "depth_limit": str(depth_limit or ""),
         "allowed_file_types": file_types,
         "extra_types": request.form.get("extra_types", ""),
@@ -206,13 +208,13 @@ def submit_crawl_post():
         "allow_cross_domain": bool(request.form.get("allow_cross_domain")),
     }
 
-    if not project_id or not url:
-        flash("Project and URL are required.", "error")
+    if not project_id or not urls:
+        flash("Project and at least one URL are required.", "error")
         return render_template("submit/crawl.html", projects=_projects(), form=form)
     try:
         task = api_client.submit_crawl(
             project_id=project_id,
-            url=url,
+            urls=urls,
             depth_limit=depth_limit,
             allowed_file_types=all_types or None,
             full_download=form["full_download"],
@@ -452,9 +454,13 @@ def scheduled_crawl_create():
     try:
         types_raw = request.form.get("allowed_file_types", "")
         types = [t.strip().upper() for t in types_raw.split(",") if t.strip()]
+        urls = [u.strip() for u in request.form.get("urls", "").splitlines() if u.strip()]
+        if not urls:
+            flash("At least one URL is required.", "error")
+            return redirect(url_for("scheduled_crawl_new"))
         api_client.create_scheduled_crawl(
+            urls=urls,
             project_id=int(request.form["project_id"]),
-            url=request.form["url"],
             frequency_seconds=int(request.form["frequency_seconds"]),
             depth_limit=request.form.get("depth_limit", type=int),
             allowed_file_types=types or None,
@@ -486,8 +492,13 @@ def scheduled_crawl_update(sid):
     try:
         types_raw = request.form.get("allowed_file_types", "")
         types = [t.strip().upper() for t in types_raw.split(",") if t.strip()]
+        urls = [u.strip() for u in request.form.get("urls", "").splitlines() if u.strip()]
+        if not urls:
+            flash("At least one URL is required.", "error")
+            return redirect(url_for("scheduled_crawl_edit", sid=sid))
         api_client.update_scheduled_crawl(
             sid,
+            urls=urls,
             frequency_seconds=int(request.form["frequency_seconds"]),
             depth_limit=request.form.get("depth_limit", type=int),
             allowed_file_types=types or None,

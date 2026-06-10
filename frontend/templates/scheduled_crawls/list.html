@@ -15,7 +15,7 @@
   <thead>
     <tr>
       <th>ID</th>
-      <th>URL</th>
+      <th>URLs</th>
       <th>Project</th>
       <th>Frequency</th>
       <th>Active</th>
@@ -28,8 +28,12 @@
     {% for sc in schedules %}
     <tr>
       <td>{{ sc.id }}</td>
-      <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ sc.url }}">
-        <a href="{{ sc.url }}" target="_blank" rel="noopener">{{ sc.url }}</a>
+      <td style="max-width: 240px;">
+        {% for u in sc.urls %}
+        <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ u }}">
+          <a href="{{ u }}" target="_blank" rel="noopener" style="font-size: 0.85rem;">{{ u }}</a>
+        </div>
+        {% endfor %}
       </td>
       <td>{{ sc.project_id }}</td>
       <td>{{ (sc.frequency_seconds // 60) }}m</td>

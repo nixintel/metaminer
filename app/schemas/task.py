@@ -22,14 +22,20 @@ class TaskResponse(BaseModel):
 
     @computed_field
     @property
-    def crawl_url(self) -> str | None:
-        """URL submitted for crawl tasks, extracted from config_json."""
+    def crawl_urls(self) -> list[str]:
+        """Start URLs for crawl tasks, extracted from config_json."""
         if self.config_json:
             try:
-                return json.loads(self.config_json).get("url")
+                cfg = json.loads(self.config_json)
+                # New format: list under "urls"
+                if "urls" in cfg:
+                    return cfg["urls"] or []
+                # Legacy format: single string under "url"
+                if "url" in cfg:
+                    return [cfg["url"]]
             except Exception:
-                return None
-        return None
+                pass
+        return []
 
     @computed_field
     @property

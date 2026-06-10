@@ -5,7 +5,7 @@ from pydantic import BaseModel, field_validator
 
 class ScheduledCrawlCreate(BaseModel):
     project_id: int
-    url: str
+    urls: list[str]
     frequency_seconds: int
     depth_limit: int | None = None
     allowed_file_types: list[str] | None = None
@@ -14,6 +14,14 @@ class ScheduledCrawlCreate(BaseModel):
     crawl_images: bool = False
     robotstxt_obey: bool | None = None
     allow_cross_domain: bool = False
+
+    @field_validator("urls")
+    @classmethod
+    def urls_must_not_be_empty(cls, v: list[str]) -> list[str]:
+        v = [u.strip() for u in v if u.strip()]
+        if not v:
+            raise ValueError("At least one URL is required")
+        return v
 
     @field_validator("frequency_seconds")
     @classmethod
@@ -25,6 +33,7 @@ class ScheduledCrawlCreate(BaseModel):
 
 class ScheduledCrawlUpdate(BaseModel):
     is_active: bool | None = None
+    urls: list[str] | None = None
     frequency_seconds: int | None = None
     depth_limit: int | None = None
     allowed_file_types: list[str] | None = None
@@ -45,7 +54,7 @@ class ScheduledCrawlUpdate(BaseModel):
 class ScheduledCrawlResponse(BaseModel):
     id: int
     project_id: int
-    url: str
+    urls: list[str]
     frequency_seconds: int
     is_active: bool
     depth_limit: int | None
@@ -69,4 +78,5 @@ class ScheduledCrawlResponse(BaseModel):
                 obj.allowed_file_types = json.loads(obj.allowed_file_types)
             except Exception:
                 obj.allowed_file_types = None
+        # `urls` is exposed via the @property on ScheduledCrawl; from_attributes reads it.
         return super().model_validate(obj, **kwargs)
