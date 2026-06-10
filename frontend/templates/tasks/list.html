@@ -6,6 +6,9 @@
 {% endblock %}
 
 {% block content %}
+{# Build a project id → name lookup from the project list the route passes in. #}
+{% set project_names = {} %}
+{% for p in projects %}{% set _ = project_names.update({p.id: p.name}) %}{% endfor %}
 <div class="page-header">
   <h2>Tasks</h2>
 </div>
@@ -60,9 +63,13 @@
     <tr>
       <td>{{ task.id }}</td>
       <td>{{ task.task_type }}</td>
-      <td>{{ task.project_id }}</td>
+      <td>{{ project_names.get(task.project_id, task.project_id) }}</td>
       <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-        {{ task.crawl_url or task.telegram_channel or '—' }}
+        {% if task.task_type == 'crawl' and task.crawl_urls %}
+          {{ task.crawl_urls[0] }}{% if task.crawl_urls | length > 1 %} <span class="muted">(plus {{ task.crawl_urls | length - 1 }} others)</span>{% endif %}
+        {% elif task.task_type == 'telegram' and task.telegram_channel %}
+          {{ task.telegram_channel }}
+        {% endif %}
       </td>
       <td><span class="badge badge-{{ task.status }}">{{ task.status }}</span></td>
       <td>{{ task.files_processed }}/{{ task.files_found }}</td>
