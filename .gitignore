@@ -11,8 +11,9 @@ build/
 .env
 
 # Data and logs (Docker volumes — don't commit)
-data/
-logs/
+# Anchored to repo root so they don't also match frontend/templates/logs/ etc.
+/data/
+/logs/
 
 # IDE
 .vscode/

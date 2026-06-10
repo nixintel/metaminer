@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Logs – Metaminer{% endblock %}
+
+{% block page_description %}
+<p class="page-desc">Application log entries persisted to the database by the API and workers. Filter by level, task, submission, or time window. Newest entries appear first.</p>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Logs</h2>
+</div>
+
+<form class="filters" method="GET" action="{{ url_for('logs_list') }}">
+  <div>
+    <label>Log Level</label>
+    <select name="level">
+      <option value="">All</option>
+      {% for l in ['DEBUG','INFO','WARNING','ERROR'] %}
+      <option value="{{ l }}" {{ 'selected' if request.args.get('level') == l else '' }}>{{ l }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Task ID</label>
+    <input type="number" name="task_id" min="1" value="{{ request.args.get('task_id', '') }}" style="max-width: 110px;">
+  </div>
+  <div>
+    <label>Submission ID</label>
+    <input type="number" name="submission_id" min="1" value="{{ request.args.get('submission_id', '') }}" style="max-width: 130px;">
+  </div>
+  <div>
+    <label>Since</label>
+    <input type="datetime-local" name="since" value="{{ request.args.get('since', '') }}">
+  </div>
+  <div>
+    <label>Until</label>
+    <input type="datetime-local" name="until" value="{{ request.args.get('until', '') }}">
+  </div>
+  <div>
+    <label>Limit</label>
+    <input type="number" name="limit" min="1" max="1000" value="{{ request.args.get('limit', '100') }}" style="max-width: 90px;">
+  </div>
+  <button type="submit" class="btn-sm">Filter</button>
+  <a href="{{ url_for('logs_list') }}" role="button" class="outline secondary btn-sm">Clear</a>
+</form>
+
+<table>
+  <thead>
+    <tr>
+      <th>Time</th>
+      <th>Level</th>
+      <th>Logger</th>
+      <th>Task</th>
+      <th>Submission</th>
+      <th>Message</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for log in logs %}
+    <tr>
+      <td style="white-space: nowrap; font-size: 0.8rem;">{{ log.created_at[:19] | replace('T', ' ') }}</td>
+      <td><span class="badge badge-{{ log.level | lower }}">{{ log.level }}</span></td>
+      <td style="font-size: 0.8rem;">{{ log.logger_name }}</td>
+      <td>
+        {% if log.task_id %}
+        <a href="{{ url_for('task_detail', tid=log.task_id) }}">#{{ log.task_id }}</a>
+        {% else %}—{% endif %}
+      </td>
+      <td>{{ log.submission_id or '—' }}</td>
+      <td style="font-size: 0.85rem;">{{ log.message }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">No log entries match these filters.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="pagination">
+  {% set offset = request.args.get('offset', 0) | int %}
+  {% set limit = request.args.get('limit', 100) | int %}
+  {% if offset > 0 %}
+  <a href="{{ url_for('logs_list', **dict(request.args, offset=[offset - limit, 0] | max)) }}" role="button" class="outline secondary btn-sm">← Previous</a>
+  {% endif %}
+  {% if logs | length == limit %}
+  <a href="{{ url_for('logs_list', **dict(request.args, offset=offset + limit)) }}" role="button" class="outline secondary btn-sm">Next →</a>
+  {% endif %}
+</div>
+{% endblock %}
