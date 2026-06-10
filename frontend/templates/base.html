@@ -47,13 +47,13 @@
         <li>
           <a href="{{ url_for('metadata_search') }}"
              class="{{ 'active' if 'metadata' in (request.endpoint or '') else '' }}">
-            Metadata
+            Search Metadata
           </a>
         </li>
         <li>
           <a href="{{ url_for('logs_list') }}"
              class="{{ 'active' if 'log' in (request.endpoint or '') else '' }}">
-            Logs
+            View Logs
           </a>
         </li>
         <li>
@@ -83,5 +83,38 @@
   </main>
 </div>
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<script>
+(function () {
+  const tip = document.createElement('div');
+  tip.className = 'tooltip-popup';
+  tip.hidden = true;
+  document.body.appendChild(tip);
+
+  function show(text) { tip.textContent = text; tip.hidden = false; }
+  function hide() { tip.hidden = true; }
+
+  function place(cx, cy) {
+    const pad = 10, tw = tip.offsetWidth, th = tip.offsetHeight;
+    let x = cx + 14, y = cy - th - 10;
+    if (x + tw > window.innerWidth - pad) x = cx - tw - 14;
+    if (y < pad) y = cy + 16;
+    if (x < pad) x = pad;
+    tip.style.left = x + 'px';
+    tip.style.top  = y + 'px';
+  }
+
+  document.addEventListener('mouseover', function (e) {
+    const el = e.target.closest('[data-tooltip]');
+    if (el) { show(el.dataset.tooltip); place(e.clientX, e.clientY); }
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (!tip.hidden) place(e.clientX, e.clientY);
+  });
+  document.addEventListener('mouseout', function (e) {
+    const el = e.target.closest('[data-tooltip]');
+    if (el && !el.contains(e.relatedTarget)) hide();
+  });
+})();
+</script>
 </body>
 </html>

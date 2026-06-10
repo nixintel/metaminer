@@ -41,7 +41,7 @@
   <div style="display: grid; grid-template-columns: 1fr auto auto auto; gap: 0.75rem; align-items: end;">
     <div>
       <label for="q">Search</label>
-      <input type="search" id="q" name="q" value="{{ request.args.get('q','') }}"
+      <input type="text" id="q" name="q" value="{{ request.args.get('q','') }}"
              placeholder="Search any metadata field or value (author, title, GPS coords, serial number, software…)"
              style="width: 100%; min-width: 200px;" autofocus>
     </div>

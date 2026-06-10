@@ -46,12 +46,6 @@ To stop the stack:
 ```bash
 docker compose down
 ```
-
-To stop and remove all data volumes:
-```bash
-docker compose down -v
-```
-
 ---
 
 ## API Overview

@@ -150,7 +150,9 @@ def project_delete(pid):
 
 @app.get("/submit/manual")
 def submit_manual():
-    return render_template("submit/manual.html", projects=_projects())
+    default_project_id = request.args.get("project_id", type=int)
+    return render_template("submit/manual.html", projects=_projects(),
+                           default_project_id=default_project_id)
 
 
 @app.post("/submit/manual")
@@ -179,7 +181,9 @@ def submit_manual_post():
 
 @app.get("/submit/crawl")
 def submit_crawl():
-    return render_template("submit/crawl.html", projects=_projects(), form={})
+    project_id = request.args.get("project_id", "")
+    return render_template("submit/crawl.html", projects=_projects(),
+                           form={"project_id": str(project_id)})
 
 
 @app.post("/submit/crawl")

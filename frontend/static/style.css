@@ -192,22 +192,11 @@ table { width: 100%; }
 .filters select, .filters input {
   margin-bottom: 0;
   min-width: 140px;
-  height: 2.5rem;
   font-size: 0.9rem;
 }
 .filters input[type="number"] { min-width: 80px; }
 .filters input[type="datetime-local"] { min-width: 200px; }
 
-/* ── Main search inputs (keyword search etc.) ────────────────────────────────── */
-
-input[type="search"] {
-  width: 100% !important;
-  font-size: 1rem !important;
-  height: 2.75rem !important;
-  padding: 0.5rem 0.75rem !important;
-  box-sizing: border-box !important;
-  min-width: 0 !important;   /* allow shrinking below intrinsic size inside flex */
-}
 
 /* Ensure all form inputs are comfortably readable */
 input, select, textarea {
@@ -227,7 +216,6 @@ input[type="password"] {
 }
 
 select {
-  min-height: 2.5rem;
   width: 100%;
 }
 
@@ -341,6 +329,10 @@ select {
 
 /* ── Tooltips ────────────────────────────────────────────────────────────────── */
 
+/* Disable PicoCSS built-in tooltip pseudo-elements; we use a JS popup instead */
+[data-tooltip]::before,
+[data-tooltip]::after { display: none !important; }
+
 [data-tooltip] { cursor: help; }
 
 .help-icon {
@@ -357,6 +349,38 @@ select {
   cursor: help;
   vertical-align: middle;
   margin-left: 0.3em;
+}
+
+/* Floating tooltip popup (positioned by JS) */
+.tooltip-popup {
+  position: fixed;
+  z-index: 9999;
+  background: #1c1c2e;
+  color: #f0f0f0;
+  padding: 0.45rem 0.75rem;
+  border-radius: 5px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  max-width: min(320px, calc(100vw - 1.5rem));
+  white-space: normal;
+  pointer-events: none;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.3);
+}
+
+/* ── Sortable table headers ───────────────────────────────────────────────────── */
+
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { background: var(--pico-primary-background); color: var(--pico-primary-inverse); }
+.sort-icon { font-size: 0.75em; opacity: 0.55; margin-left: 0.2em; }
+th.sortable:hover .sort-icon, th.sort-active .sort-icon { opacity: 1; }
+
+/* ── Truncated table cells ───────────────────────────────────────────────────── */
+
+.cell-truncate {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Telegram status ─────────────────────────────────────────────────────────── */
