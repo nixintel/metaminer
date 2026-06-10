@@ -392,22 +392,14 @@ def metadata_export():
 
 @app.get("/metadata/<int:rid>")
 def metadata_detail(rid):
-    # The GET /metadata endpoint doesn't have a single-record route,
-    # so fetch with id filter (submission_id won't work here).
-    # We'll retrieve via a direct search by id using raw offset trick.
-    # Instead: we pass it through from the results list via query param.
-    # For now, search with offset=id-1 isn't reliable.
-    # Best approach: fetch recent records and find by id.
     try:
-        records = api_client.search_metadata(limit=1, offset=max(0, rid - 1))
-        record = next((r for r in records if r["id"] == rid), None)
-        if not record:
-            # Try a wider search
-            records = api_client.search_metadata(limit=500)
-            record = next((r for r in records if r["id"] == rid), None)
-        if not record:
+        record = api_client.get_metadata(rid)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
             flash(f"Record #{rid} not found.", "error")
-            return redirect(url_for("metadata_search"))
+        else:
+            flash(_api_error(e, "load record"), "error")
+        return redirect(url_for("metadata_search"))
     except Exception as e:
         flash(_api_error(e, "load record"), "error")
         return redirect(url_for("metadata_search"))

@@ -108,6 +108,9 @@ def cancel_task(tid):
 def search_metadata(**kwargs):
     return _get("/metadata", **kwargs)
 
+def get_metadata(rid):
+    return _get(f"/metadata/{rid}")
+
 def query_metadata_tree(body):
     r = httpx.post(f"{_API}/metadata/query", json=body, timeout=_TIMEOUT)
     r.raise_for_status()

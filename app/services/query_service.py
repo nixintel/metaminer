@@ -41,6 +41,32 @@ SORTABLE_COLUMNS = {
 }
 
 
+def _serialize_row(record: MetadataRecord, submission: FileSubmission, project: Project) -> dict:
+    """Flatten a (record, submission, project) join row into the API response dict."""
+    data = {col.name: getattr(record, col.name) for col in MetadataRecord.__table__.columns}
+    try:
+        data["raw_json"] = json.loads(data["raw_json"])
+    except Exception:
+        pass
+    data["source_url"] = submission.source_url
+    data["submission_mode"] = submission.submission_mode
+    data["project_id"] = project.id
+    data["project_name"] = project.name
+    return data
+
+
+async def get_metadata_by_id(db: AsyncSession, metadata_id: int) -> dict | None:
+    """Fetch a single metadata record by its primary key, or None if it doesn't exist."""
+    q = (
+        select(MetadataRecord, FileSubmission, Project)
+        .join(FileSubmission, MetadataRecord.submission_id == FileSubmission.id)
+        .join(Project, FileSubmission.project_id == Project.id)
+        .where(MetadataRecord.id == metadata_id)
+    )
+    row = (await db.execute(q)).first()
+    return _serialize_row(*row) if row is not None else None
+
+
 async def query_metadata(db: AsyncSession, params: dict) -> list[dict]:
     q = (
         select(MetadataRecord, FileSubmission, Project)
@@ -122,20 +148,7 @@ async def query_metadata(db: AsyncSession, params: dict) -> list[dict]:
     result = await db.execute(q)
     rows = result.all()
 
-    output = []
-    for record, submission, project in rows:
-        data = {col.name: getattr(record, col.name) for col in MetadataRecord.__table__.columns}
-        try:
-            data["raw_json"] = json.loads(data["raw_json"])
-        except Exception:
-            pass
-        data["source_url"] = submission.source_url
-        data["submission_mode"] = submission.submission_mode
-        data["project_id"] = project.id
-        data["project_name"] = project.name
-        output.append(data)
-
-    return output
+    return [_serialize_row(record, submission, project) for record, submission, project in rows]
 
 
 def build_filter_clause(node: dict):
@@ -189,17 +202,4 @@ async def query_metadata_tree(db: AsyncSession, request: dict) -> list[dict]:
     result = await db.execute(stmt)
     rows = result.all()
 
-    output = []
-    for record, submission, project in rows:
-        data = {col.name: getattr(record, col.name) for col in MetadataRecord.__table__.columns}
-        try:
-            data["raw_json"] = json.loads(data["raw_json"])
-        except Exception:
-            pass
-        data["source_url"] = submission.source_url
-        data["submission_mode"] = submission.submission_mode
-        data["project_id"] = project.id
-        data["project_name"] = project.name
-        output.append(data)
-
-    return output
+    return [_serialize_row(record, submission, project) for record, submission, project in rows]

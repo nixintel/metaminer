@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
 from datetime import datetime
 from app.database import get_db
-from app.services.query_service import query_metadata, query_metadata_tree
+from app.services.query_service import query_metadata, query_metadata_tree, get_metadata_by_id
 from app.schemas.metadata import QueryRequest
 
 router = APIRouter(prefix="/metadata", tags=["metadata"])
@@ -61,3 +61,11 @@ async def search_metadata(
 @router.post("/query")
 async def query_metadata_post(request: QueryRequest, db: AsyncSession = Depends(get_db)):
     return await query_metadata_tree(db, request.model_dump())
+
+
+@router.get("/{metadata_id}")
+async def get_metadata(metadata_id: int, db: AsyncSession = Depends(get_db)):
+    record = await get_metadata_by_id(db, metadata_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Metadata record {metadata_id} not found")
+    return record
