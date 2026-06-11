@@ -7,6 +7,7 @@ Each downloaded file path is added to spider.downloaded_files for the caller to 
 from pathlib import Path
 from urllib.parse import urlparse
 import scrapy
+from scrapy.http import HtmlResponse
 from scrapy.linkextractors import LinkExtractor
 from scrapy.spiders import CrawlSpider, Rule
 from config import settings
@@ -58,6 +59,7 @@ class MetaminerSpider(CrawlSpider):
         self.failed_urls: list[dict[str, str]] = []
         self.failure_count: int = 0
         self.full_download = full_download
+        self.crawl_images = crawl_images
         self._result_queue = result_queue  # optional streaming queue
 
         # CrawlSpider._compile_rules() reads self.rules inside super().__init__(),
@@ -169,7 +171,8 @@ class MetaminerSpider(CrawlSpider):
             "Start URL response | status=%d | content-type=%s | url=%s",
             response.status, content_type, response.url,
         )
-        return []
+        if self.crawl_images:
+            yield from self._extract_meta_image_requests(response)
 
     def handle_error(self, failure):
         url = failure.request.url if failure.request else "<unknown>"
@@ -180,6 +183,52 @@ class MetaminerSpider(CrawlSpider):
         self.failed_urls.append({"url": url, "error": msg})
         self.failure_count += 1
         return None
+
+    # Image URLs referenced in <meta>/<link> tags (og:image, twitter:image,
+    # <link rel=preload as=image>, image_src) are invisible to Scrapy's
+    # LinkExtractor, which only reads href/src on <a>/<area>/<img>. Extract them
+    # explicitly so social-preview and preloaded images get discovered too.
+    META_IMAGE_SELECTORS = (
+        'meta[property="og:image"]::attr(content)',
+        'meta[property="og:image:url"]::attr(content)',
+        'meta[property="og:image:secure_url"]::attr(content)',
+        'meta[name="twitter:image"]::attr(content)',
+        'meta[name="twitter:image:src"]::attr(content)',
+        'link[rel="preload"][as="image"]::attr(href)',
+        'link[rel="image_src"]::attr(href)',
+    )
+
+    def _extract_meta_image_requests(self, response):
+        """Yield download Requests for image URLs referenced in <meta>/<link> tags.
+
+        Only HTML responses carry these. Each URL is absolutised, de-duplicated
+        within the page, and routed through parse_link (which applies the
+        target-extension and file-size filters). Scrapy's dupefilter, depth limit
+        and offsite middleware apply just as they do for normal extracted links.
+        """
+        if not isinstance(response, HtmlResponse):
+            return
+        seen = set()
+        for sel in self.META_IMAGE_SELECTORS:
+            for raw in response.css(sel).getall():
+                candidate = (raw or "").strip()
+                if not candidate:
+                    continue
+                abs_url = response.urljoin(candidate)
+                if abs_url in seen:
+                    continue
+                seen.add(abs_url)
+                ext = Path(urlparse(abs_url).path.lower()).suffix.lstrip(".")
+                self.logger.info(
+                    "Meta/link image discovered | ext=%s | url=%s | from=%s",
+                    f".{ext}" if ext else "<none>", abs_url, response.url,
+                )
+                yield scrapy.Request(
+                    abs_url,
+                    callback=self.parse_link,
+                    errback=self.handle_error,
+                    priority=10 if ext in self.target_extensions else 0,
+                )
 
     def parse_link(self, response):
         url = response.url
@@ -206,6 +255,8 @@ class MetaminerSpider(CrawlSpider):
             # to avoid flooding logs. File-type skips are logged at INFO.
             if ext in ("html", "htm", ""):
                 self.logger.debug("Skipped (HTML/navigation) | url=%s", url)
+                if self.crawl_images:
+                    yield from self._extract_meta_image_requests(response)
             else:
                 self.logger.info(
                     "Skipped (extension not in target list) | ext=.%s | "

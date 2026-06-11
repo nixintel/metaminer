@@ -130,7 +130,7 @@ class Settings(BaseSettings):
             # Presentations
             "ppt", "pptx", "odp",
             # Images
-            "jpg", "jpeg", "png", "gif", "tiff", "webp", "svg"
+            "jpg", "jpeg", "png", "gif", "tiff", "webp", "svg",
             # Audio / video
             "mp3", "mp4",
             # Data / text
