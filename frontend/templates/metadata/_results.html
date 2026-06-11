@@ -19,6 +19,23 @@
       result{{ 's' if records | length != 1 else '' }}
       {% if records | length == limit %}<em> (may be more — increase limit)</em>{% endif %}
     </div>
+    {# Export control — present for every result set (keyword, advanced, query builder). #}
+    {# Export pulls ALL matching rows server-side regardless of the on-screen limit. #}
+    {% if export_href %}
+    <a href="{{ export_href }}" role="button" class="outline secondary btn-sm" style="align-self:center;">
+      Export CSV
+    </a>
+    {% elif export_form %}
+    <form method="POST" action="{{ url_for('metadata_export_query') }}" style="margin:0; align-self:center;">
+      <input type="hidden" name="qb_operator" value="{{ export_form.operator }}">
+      {% for c in export_form.conditions %}
+      <input type="hidden" name="qb_field_{{ loop.index0 }}" value="{{ c.field }}">
+      <input type="hidden" name="qb_op_{{ loop.index0 }}" value="{{ c.op }}">
+      <input type="hidden" name="qb_value_{{ loop.index0 }}" value="{{ c.value }}">
+      {% endfor %}
+      <button type="submit" class="outline secondary btn-sm" style="margin:0;">Export CSV</button>
+    </form>
+    {% endif %}
   </div>
 
   <table id="results-table">

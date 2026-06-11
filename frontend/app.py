@@ -1,5 +1,7 @@
 import csv
 import io
+import json
+import logging
 import os
 import uuid
 
@@ -14,6 +16,8 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-prod")
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB upload limit
 
 TEMP_DIR = os.environ.get("TEMP_DIR", "/app/data/temp")
+
+logger = logging.getLogger("metaminer.frontend")
 
 
 def _api_error(e: Exception, action: str = "complete this action") -> str:
@@ -41,6 +45,106 @@ def _save_upload(file) -> str:
     path = os.path.join(TEMP_DIR, filename)
     file.save(path)
     return path
+
+
+# ── CSV export helpers ──────────────────────────────────────────────────────
+
+# Core columns, in export order. id / project_name / source_url lead; the rest
+# of the promoted metadata fields follow. Flattened exiftool columns are appended
+# after these by _records_to_csv().
+CORE_CSV_FIELDS = [
+    "id", "project_name", "source_url",
+    "file_name", "file_type", "mime_type", "file_size",
+    "author", "title", "creator_tool", "producer", "pdf_version",
+    "create_date", "modify_date", "extracted_at", "submission_mode",
+]
+
+# Backend caps limit at 500; we page through with offset to export everything.
+_EXPORT_PAGE_SIZE = 500
+_EXPORT_MAX_PAGES = 200  # safety guard (~100k rows) — logged, never silent
+
+
+def _flatten_json(obj, prefix=""):
+    """Recursively flatten a nested exiftool dict into {Group:Key: value}.
+
+    Grouped output ({"PDF": {"Author": …}}) becomes "PDF:Author"; flat output
+    ({"Author": …}) stays "Author". Lists are JSON-encoded so each field stays a
+    single column.
+    """
+    out = {}
+    if not isinstance(obj, dict):
+        return out
+    for k, v in obj.items():
+        key = f"{prefix}:{k}" if prefix else str(k)
+        if isinstance(v, dict):
+            out.update(_flatten_json(v, key))
+        elif isinstance(v, list):
+            out[key] = json.dumps(v, ensure_ascii=False)
+        else:
+            out[key] = v
+    return out
+
+
+def _records_to_csv(records) -> str:
+    """Build a CSV string from metadata records.
+
+    Columns: CORE_CSV_FIELDS, then every flattened exiftool field (union across
+    all rows, sorted). A record whose raw_json failed to parse upstream (arrives
+    as a string instead of a dict) is flagged in an `exif_parse_error` column
+    rather than having its exif data silently dropped.
+    """
+    flattened = []      # one flattened-exif dict per record, parallel to `records`
+    exif_keys = set()
+    for r in records:
+        raw = r.get("raw_json")
+        if isinstance(raw, dict):
+            flat = _flatten_json(raw)
+        elif isinstance(raw, str) and raw.strip():
+            flat = {"exif_parse_error": "raw_json could not be parsed by the backend"}
+        else:
+            flat = {}
+        flattened.append(flat)
+        exif_keys.update(flat.keys())
+
+    has_error_col = "exif_parse_error" in exif_keys
+    error_col = ["exif_parse_error"] if has_error_col else []
+    # Exclude core names defensively so DictWriter never sees a duplicate column.
+    exif_cols = sorted(
+        k for k in exif_keys
+        if k != "exif_parse_error" and k not in CORE_CSV_FIELDS
+    )
+    fieldnames = CORE_CSV_FIELDS + error_col + exif_cols
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for r, flat in zip(records, flattened):
+        row = {f: r.get(f, "") for f in CORE_CSV_FIELDS}
+        row.update({k: ("" if v is None else v) for k, v in flat.items()})
+        writer.writerow(row)
+    return output.getvalue()
+
+
+def _paginate(fetch_page):
+    """Fetch every matching row by paging through the backend.
+
+    `fetch_page(offset, limit)` returns a list of records. Stops once a page comes
+    back shorter than the page size. Bounded by _EXPORT_MAX_PAGES; if the cap is
+    hit a warning is logged so truncation is never silent.
+    """
+    records = []
+    offset = 0
+    for _ in range(_EXPORT_MAX_PAGES):
+        batch = fetch_page(offset, _EXPORT_PAGE_SIZE)
+        records.extend(batch)
+        if len(batch) < _EXPORT_PAGE_SIZE:
+            return records
+        offset += _EXPORT_PAGE_SIZE
+    logger.warning(
+        "Export pagination hit the %d-page cap (%d rows accumulated); export may be truncated.",
+        _EXPORT_MAX_PAGES, len(records),
+    )
+    return records
 
 
 # ── Healthcheck ───────────────────────────────────────────────────────────────
@@ -310,10 +414,12 @@ def metadata_search():
     qb_operator = request.args.get("qb_operator", "AND")
     qb_limit    = request.args.get("qb_limit", "50")
 
+    export_href = url_for("metadata_export") + "?" + request.query_string.decode()
+
     return render_template(
         "metadata/search.html",
         mode=mode, projects=projects, records=records,
-        searched=searched, limit=limit,
+        searched=searched, limit=limit, export_href=export_href,
         qb_fields=qb_fields, qb_ops=qb_ops, qb_values=qb_values,
         qb_operator=qb_operator, qb_limit=qb_limit,
     )
@@ -331,8 +437,9 @@ def metadata_results():
             records = api_client.search_metadata(**kwargs)
         except Exception as e:
             return f'<div id="results-container"><p class="flash flash-error">{_api_error(e)}</p></div>'
+    export_href = url_for("metadata_export") + "?" + request.query_string.decode()
     return render_template("metadata/_results.html", records=records,
-                           searched=searched, limit=limit)
+                           searched=searched, limit=limit, export_href=export_href)
 
 
 @app.post("/metadata/query-results")
@@ -357,34 +464,60 @@ def metadata_query_results():
         records = api_client.query_metadata_tree(body)
     except Exception as e:
         return f'<div id="results-container"><p class="flash flash-error">{_api_error(e)}</p></div>'
+    export_form = {"operator": operator, "conditions": conditions}
     return render_template("metadata/_results.html", records=records,
-                           searched=True, limit=limit)
+                           searched=True, limit=limit, export_form=export_form)
 
 
 @app.get("/metadata/export")
 def metadata_export():
-    """Download current search results as CSV (limit 500)."""
+    """Download ALL matching keyword/advanced search results as CSV (paginated)."""
     kwargs = {k: v for k, v in request.args.items() if v and k != "mode"}
-    kwargs["limit"] = 500
+    kwargs.pop("limit", None)
+    kwargs.pop("offset", None)
     try:
-        records = api_client.search_metadata(**kwargs)
+        records = _paginate(
+            lambda off, lim: api_client.search_metadata(**kwargs, offset=off, limit=lim)
+        )
     except Exception as e:
         flash(_api_error(e, "export"), "error")
         return redirect(url_for("metadata_search"))
 
-    fields = ["id", "file_name", "file_type", "mime_type", "file_size",
-              "author", "title", "creator_tool", "producer", "pdf_version",
-              "create_date", "modify_date", "extracted_at",
-              "source_url", "submission_mode", "project_name"]
+    return Response(
+        _records_to_csv(records),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=metadata.csv"},
+    )
 
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
-    writer.writeheader()
-    for r in records:
-        writer.writerow({f: r.get(f, "") for f in fields})
+
+@app.post("/metadata/export-query")
+def metadata_export_query():
+    """Download ALL matching query-builder results as CSV (paginated)."""
+    operator = request.form.get("qb_operator", "AND")
+    conditions = []
+    for i in range(5):
+        field = request.form.get(f"qb_field_{i}", "")
+        op    = request.form.get(f"qb_op_{i}", "contains")
+        value = request.form.get(f"qb_value_{i}", "")
+        if field and value:
+            conditions.append({"field": field, "op": op, "value": value})
+
+    if not conditions:
+        flash("Add at least one condition before exporting.", "error")
+        return redirect(url_for("metadata_search", mode="query"))
+
+    def fetch_page(off, lim):
+        body = {"operator": operator, "conditions": conditions, "limit": lim, "offset": off}
+        return api_client.query_metadata_tree(body)
+
+    try:
+        records = _paginate(fetch_page)
+    except Exception as e:
+        flash(_api_error(e, "export"), "error")
+        return redirect(url_for("metadata_search", mode="query"))
 
     return Response(
-        output.getvalue(),
+        _records_to_csv(records),
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=metadata.csv"},
     )

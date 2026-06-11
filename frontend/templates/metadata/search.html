@@ -14,11 +14,6 @@
 {% block content %}
 <div class="page-header">
   <h2>Metadata Search</h2>
-  {% if records %}
-  <a href="{{ url_for('metadata_export') }}?{{ request.query_string.decode() }}" role="button" class="outline secondary btn-sm">
-    Export CSV
-  </a>
-  {% endif %}
 </div>
 
 <div class="tabs">
