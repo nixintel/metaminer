@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import uuid
+from urllib.parse import urlencode
 
 import httpx
 from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
@@ -145,6 +146,65 @@ def _paginate(fetch_page):
         _EXPORT_MAX_PAGES, len(records),
     )
     return records
+
+
+# ── On-page pagination (visible results) ────────────────────────────────────
+
+# Page-size choices offered in the UI. "all" shows every matching row on one page.
+PAGE_SIZE_OPTIONS = ["10", "50", "100", "500", "1000", "all"]
+DEFAULT_PAGE_SIZE = "50"
+
+
+def _parse_page_size(raw):
+    """'all' -> None (no per-page cap); otherwise a positive int (default 50)."""
+    if raw == "all":
+        return None
+    try:
+        n = int(raw)
+        return n if n > 0 else 50
+    except (TypeError, ValueError):
+        return 50
+
+
+def _fetch_window(fetch_page, offset, count):
+    """Fetch up to `count` rows starting at `offset`, chunked into <=500 backend
+    calls (the API caps limit at 500). `count=None` fetches everything from offset.
+
+    Returns (records, has_next). has_next is True when more rows likely exist past
+    the returned window (i.e. the window filled completely on a chunk boundary).
+    """
+    records = []
+    cur = offset
+    for _ in range(_EXPORT_MAX_PAGES):
+        if count is None:
+            lim = _EXPORT_PAGE_SIZE
+        else:
+            lim = min(_EXPORT_PAGE_SIZE, count - len(records))
+            if lim <= 0:
+                return records, True   # window filled on a chunk boundary; more may exist
+        batch = fetch_page(cur, lim)
+        records.extend(batch)
+        cur += len(batch)
+        if len(batch) < lim:
+            return records, False      # backend exhausted — definitely no next page
+    logger.warning("Result window hit the %d-page cap at offset %d.", _EXPORT_MAX_PAGES, offset)
+    return records, True
+
+
+def _get_pager(page, page_size_raw, count, offset, records, has_next):
+    """Pager context for GET (keyword/advanced) results — navigation via hx-get
+    links that carry the current search params (minus page)."""
+    base = {k: v for k, v in request.args.items() if k != "page"}
+    return {
+        "mode": "get",
+        "page": page,
+        "page_size": page_size_raw,
+        "base_qs": urlencode(base),
+        "has_prev": count is not None and page > 0,
+        "has_next": count is not None and has_next,
+        "start": offset + 1 if records else 0,
+        "end": offset + len(records),
+    }
 
 
 # ── Healthcheck ───────────────────────────────────────────────────────────────
@@ -397,13 +457,21 @@ def metadata_search():
     projects = _projects()
     records = []
     searched = bool(request.args)
-    limit = request.args.get("limit", 50, type=int)
+    page_size_raw = request.args.get("page_size", DEFAULT_PAGE_SIZE)
+    page = request.args.get("page", 0, type=int)
+    pager = None
 
     if searched and mode != "query":
         try:
             kwargs = {k: v for k, v in request.args.items()
-                      if k not in ("mode",) and v}
-            records = api_client.search_metadata(**kwargs)
+                      if v and k not in ("mode", "page", "page_size", "limit", "offset")}
+            count = _parse_page_size(page_size_raw)
+            offset = page * count if count is not None else 0
+            records, has_next = _fetch_window(
+                lambda off, lim: api_client.search_metadata(**kwargs, offset=off, limit=lim),
+                offset, count,
+            )
+            pager = _get_pager(page, page_size_raw, count, offset, records, has_next)
         except Exception as e:
             flash(_api_error(e, "search metadata"), "error")
 
@@ -412,41 +480,52 @@ def metadata_search():
     qb_ops     = [request.args.get(f"qb_op_{i}", "contains") for i in range(5)]
     qb_values  = [request.args.get(f"qb_value_{i}", "") for i in range(5)]
     qb_operator = request.args.get("qb_operator", "AND")
-    qb_limit    = request.args.get("qb_limit", "50")
+    qb_page_size = request.args.get("qb_page_size", DEFAULT_PAGE_SIZE)
 
     export_href = url_for("metadata_export") + "?" + request.query_string.decode()
 
     return render_template(
         "metadata/search.html",
         mode=mode, projects=projects, records=records,
-        searched=searched, limit=limit, export_href=export_href,
+        searched=searched, export_href=export_href, pager=pager,
+        page_size=page_size_raw, page_size_options=PAGE_SIZE_OPTIONS,
         qb_fields=qb_fields, qb_ops=qb_ops, qb_values=qb_values,
-        qb_operator=qb_operator, qb_limit=qb_limit,
+        qb_operator=qb_operator, qb_page_size=qb_page_size,
     )
 
 
 @app.get("/metadata/results")
 def metadata_results():
-    """HTMX partial — returns just the results table."""
+    """HTMX partial — returns just the results table for one page of results."""
     records = []
     searched = bool(request.args)
-    limit = request.args.get("limit", 50, type=int)
+    page_size_raw = request.args.get("page_size", DEFAULT_PAGE_SIZE)
+    page = request.args.get("page", 0, type=int)
+    pager = None
     if searched:
         try:
-            kwargs = {k: v for k, v in request.args.items() if v and k != "mode"}
-            records = api_client.search_metadata(**kwargs)
+            kwargs = {k: v for k, v in request.args.items()
+                      if v and k not in ("mode", "page", "page_size", "limit", "offset")}
+            count = _parse_page_size(page_size_raw)
+            offset = page * count if count is not None else 0
+            records, has_next = _fetch_window(
+                lambda off, lim: api_client.search_metadata(**kwargs, offset=off, limit=lim),
+                offset, count,
+            )
+            pager = _get_pager(page, page_size_raw, count, offset, records, has_next)
         except Exception as e:
             return f'<div id="results-container"><p class="flash flash-error">{_api_error(e)}</p></div>'
     export_href = url_for("metadata_export") + "?" + request.query_string.decode()
     return render_template("metadata/_results.html", records=records,
-                           searched=searched, limit=limit, export_href=export_href)
+                           searched=searched, export_href=export_href, pager=pager)
 
 
 @app.post("/metadata/query-results")
 def metadata_query_results():
-    """HTMX partial — executes a query builder POST and returns the results table."""
+    """HTMX partial — executes a query builder POST and returns one page of results."""
     operator = request.form.get("qb_operator", "AND")
-    limit = request.form.get("qb_limit", 50, type=int)
+    page_size_raw = request.form.get("qb_page_size", DEFAULT_PAGE_SIZE)
+    page = request.form.get("qb_page", 0, type=int)
     conditions = []
     for i in range(5):
         field = request.form.get(f"qb_field_{i}", "")
@@ -458,23 +537,39 @@ def metadata_query_results():
     if not conditions:
         return '<div id="results-container"><p>Add at least one condition.</p></div>'
 
-    body = {"operator": operator, "conditions": conditions, "limit": limit}
+    count = _parse_page_size(page_size_raw)
+    offset = page * count if count is not None else 0
+
+    def fetch_page(off, lim):
+        body = {"operator": operator, "conditions": conditions, "limit": lim, "offset": off}
+        return api_client.query_metadata_tree(body)
+
     records = []
     try:
-        records = api_client.query_metadata_tree(body)
+        records, has_next = _fetch_window(fetch_page, offset, count)
     except Exception as e:
         return f'<div id="results-container"><p class="flash flash-error">{_api_error(e)}</p></div>'
     export_form = {"operator": operator, "conditions": conditions}
-    return render_template("metadata/_results.html", records=records,
-                           searched=True, limit=limit, export_form=export_form)
+    pager = {
+        "mode": "post",
+        "page": page,
+        "page_size": page_size_raw,
+        "operator": operator,
+        "conditions": conditions,
+        "has_prev": count is not None and page > 0,
+        "has_next": count is not None and has_next,
+        "start": offset + 1 if records else 0,
+        "end": offset + len(records),
+    }
+    return render_template("metadata/_results.html", records=records, pager=pager,
+                           searched=True, export_form=export_form)
 
 
 @app.get("/metadata/export")
 def metadata_export():
     """Download ALL matching keyword/advanced search results as CSV (paginated)."""
-    kwargs = {k: v for k, v in request.args.items() if v and k != "mode"}
-    kwargs.pop("limit", None)
-    kwargs.pop("offset", None)
+    kwargs = {k: v for k, v in request.args.items()
+              if v and k not in ("mode", "page", "page_size", "limit", "offset")}
     try:
         records = _paginate(
             lambda off, lim: api_client.search_metadata(**kwargs, offset=off, limit=lim)

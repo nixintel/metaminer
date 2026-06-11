@@ -1,0 +1,9 @@
+{#- Hidden inputs that re-submit the current query-builder query when paging.
+    Used inside the Previous/Next forms in _pager.html. The caller adds qb_page. -#}
+<input type="hidden" name="qb_operator" value="{{ pager.operator }}">
+<input type="hidden" name="qb_page_size" value="{{ pager.page_size }}">
+{% for c in pager.conditions %}
+<input type="hidden" name="qb_field_{{ loop.index0 }}" value="{{ c.field }}">
+<input type="hidden" name="qb_op_{{ loop.index0 }}" value="{{ c.op }}">
+<input type="hidden" name="qb_value_{{ loop.index0 }}" value="{{ c.value }}">
+{% endfor %}

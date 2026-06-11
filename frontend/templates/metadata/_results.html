@@ -16,8 +16,8 @@
     </div>
     <div style="margin-left:auto; font-size:0.85rem; color:var(--pico-muted-color); align-self:center;">
       <span id="results-count">{{ records | length }}</span>
-      result{{ 's' if records | length != 1 else '' }}
-      {% if records | length == limit %}<em> (may be more — increase limit)</em>{% endif %}
+      result{{ 's' if records | length != 1 else '' }} on this page
+      {% if pager and pager.end %}<span> · rows {{ pager.start }}–{{ pager.end }}</span>{% endif %}
     </div>
     {# Export control — present for every result set (keyword, advanced, query builder). #}
     {# Export pulls ALL matching rows server-side regardless of the on-screen limit. #}
@@ -67,8 +67,10 @@
       {% endfor %}
     </tbody>
   </table>
+  {% include "metadata/_pager.html" %}
   {% elif searched %}
-  <p>No results found.</p>
+  <p>No results found{{ ' on this page' if pager and pager.page else '' }}.</p>
+  {% include "metadata/_pager.html" %}
   {% endif %}
 </div>
 <script>

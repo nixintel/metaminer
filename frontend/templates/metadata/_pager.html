@@ -1,0 +1,40 @@
+{#- Pagination controls. Rendered for GET (keyword/advanced) and POST (query builder)
+    result sets. Hidden when a single page holds everything (e.g. page size "All"). -#}
+{% if pager and (pager.has_prev or pager.has_next) %}
+<nav class="pager" style="display:flex; gap:0.75rem; align-items:center; margin-top:0.9rem;">
+
+  {% if pager.mode == 'get' %}
+    {% if pager.has_prev %}
+    <a role="button" class="outline secondary btn-sm"
+       hx-get="{{ url_for('metadata_results') }}?{{ pager.base_qs }}&page={{ pager.page - 1 }}"
+       hx-target="#results-container" hx-trigger="click" style="cursor:pointer;">← Previous</a>
+    {% endif %}
+    <span style="font-size:0.85rem; color:var(--pico-muted-color);">Page {{ pager.page + 1 }}</span>
+    {% if pager.has_next %}
+    <a role="button" class="outline secondary btn-sm"
+       hx-get="{{ url_for('metadata_results') }}?{{ pager.base_qs }}&page={{ pager.page + 1 }}"
+       hx-target="#results-container" hx-trigger="click" style="cursor:pointer;">Next →</a>
+    {% endif %}
+
+  {% elif pager.mode == 'post' %}
+    {% if pager.has_prev %}
+    <form method="POST" hx-post="{{ url_for('metadata_query_results') }}"
+          hx-target="#results-container" style="margin:0;">
+      {% include "metadata/_pager_qb_fields.html" with context %}
+      <input type="hidden" name="qb_page" value="{{ pager.page - 1 }}">
+      <button type="submit" class="outline secondary btn-sm" style="margin:0;">← Previous</button>
+    </form>
+    {% endif %}
+    <span style="font-size:0.85rem; color:var(--pico-muted-color);">Page {{ pager.page + 1 }}</span>
+    {% if pager.has_next %}
+    <form method="POST" hx-post="{{ url_for('metadata_query_results') }}"
+          hx-target="#results-container" style="margin:0;">
+      {% include "metadata/_pager_qb_fields.html" with context %}
+      <input type="hidden" name="qb_page" value="{{ pager.page + 1 }}">
+      <button type="submit" class="outline secondary btn-sm" style="margin:0;">Next →</button>
+    </form>
+    {% endif %}
+  {% endif %}
+
+</nav>
+{% endif %}

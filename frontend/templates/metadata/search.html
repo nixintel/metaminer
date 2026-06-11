@@ -50,10 +50,10 @@
       </select>
     </div>
     <div>
-      <label>Limit</label>
-      <select name="limit" style="min-width: 80px;">
-        {% for l in [50, 100, 200, 500] %}
-        <option value="{{ l }}" {{ 'selected' if request.args.get('limit','50') == l|string else '' }}>{{ l }}</option>
+      <label>Per page</label>
+      <select name="page_size" style="min-width: 80px;">
+        {% for l in page_size_options %}
+        <option value="{{ l }}" {{ 'selected' if request.args.get('page_size','50') == l else '' }}>{{ 'All' if l == 'all' else l }}</option>
         {% endfor %}
       </select>
     </div>
@@ -153,10 +153,10 @@
       </select>
     </div>
     <div>
-      <label>Limit</label>
-      <select name="limit">
-        {% for l in [50, 100, 200, 500] %}
-        <option value="{{ l }}" {{ 'selected' if request.args.get('limit','50') == l|string else '' }}>{{ l }}</option>
+      <label>Per page</label>
+      <select name="page_size">
+        {% for l in page_size_options %}
+        <option value="{{ l }}" {{ 'selected' if request.args.get('page_size','50') == l else '' }}>{{ 'All' if l == 'all' else l }}</option>
         {% endfor %}
       </select>
     </div>
@@ -202,10 +202,10 @@
 
   <div style="display: flex; gap: 1rem; margin-top: 1rem; align-items: center;">
     <div>
-      <label style="display: inline; margin-right: 0.5rem;">Limit</label>
-      <select name="qb_limit" style="width: auto;">
-        {% for l in [50, 100, 200, 500] %}
-        <option value="{{ l }}" {{ 'selected' if qb_limit == l|string else '' }}>{{ l }}</option>
+      <label style="display: inline; margin-right: 0.5rem;">Per page</label>
+      <select name="qb_page_size" style="width: auto;">
+        {% for l in page_size_options %}
+        <option value="{{ l }}" {{ 'selected' if qb_page_size == l else '' }}>{{ 'All' if l == 'all' else l }}</option>
         {% endfor %}
       </select>
     </div>

@@ -78,9 +78,71 @@
   </article>
 </div>
 
-<h3 style="margin-top: 2rem;">Raw Exiftool Output</h3>
+<div class="page-header" style="margin-top: 2rem;">
+  <h3 style="margin: 0;">Raw Exiftool Output</h3>
+  <div style="display: flex; gap: 0.5rem;">
+    <button type="button" id="copy-json-btn" class="outline secondary btn-sm">Copy to Clipboard</button>
+    <button type="button" id="download-json-btn" class="outline secondary btn-sm">Download Raw JSON</button>
+  </div>
+</div>
 <details open>
   <summary>Show / hide JSON</summary>
-  <div class="raw-json">{{ record.raw_json | tojson(indent=2) }}</div>
+  <pre id="raw-json" class="raw-json">{{ record.raw_json | tojson(indent=2) }}</pre>
 </details>
+
+{# Canonical copy of the exiftool JSON for clean copy/download (re-serialized in JS
+   so escaped sequences like < become real characters). #}
+<script type="application/json" id="raw-json-data">{{ record.raw_json | tojson }}</script>
+<script>
+(function () {
+  const dataEl = document.getElementById('raw-json-data');
+  const copyBtn = document.getElementById('copy-json-btn');
+  const dlBtn = document.getElementById('download-json-btn');
+  if (!dataEl) return;
+
+  let pretty;
+  try {
+    pretty = JSON.stringify(JSON.parse(dataEl.textContent), null, 2);
+  } catch (e) {
+    pretty = dataEl.textContent;  // fall back to the raw embedded text
+  }
+
+  function flash(btn, msg) {
+    const original = btn.textContent;
+    btn.textContent = msg;
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
+  }
+
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(pretty);
+      flash(copyBtn, 'Copied!');
+    } catch (e) {
+      // Fallback for browsers/contexts without the async clipboard API
+      const ta = document.createElement('textarea');
+      ta.value = pretty;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); flash(copyBtn, 'Copied!'); }
+      catch (err) { flash(copyBtn, 'Copy failed'); }
+      document.body.removeChild(ta);
+    }
+  });
+
+  dlBtn.addEventListener('click', () => {
+    const blob = new Blob([pretty], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'metadata-{{ record.id }}-exiftool.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+})();
+</script>
 {% endblock %}
