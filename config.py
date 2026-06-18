@@ -107,6 +107,14 @@ class Settings(BaseSettings):
     CRAWLER_AUTOTHROTTLE_MAX_DELAY: float = 10.0
     CRAWLER_CONCURRENT_REQUESTS: int = 8
     CRAWLER_CONCURRENT_REQUESTS_PER_DOMAIN: int = 4
+    # Number of start URLs crawled concurrently *within* a single crawl task.
+    # Each concurrent URL is an isolated Scrapy subprocess (~30-150MB RSS) plus a
+    # short exiftool burst per downloaded file. Effective system-wide crawler
+    # subprocess count = CRAWL_WORKER_COUNT × CRAWL_URL_CONCURRENCY, so keep the
+    # product within the box's memory and Postgres max_connections budget.
+    # Note: Scrapy politeness (DOWNLOAD_DELAY, per-domain limits, autothrottle) is
+    # per-subprocess, so concurrent URLs to the SAME domain are not rate-coordinated.
+    CRAWL_URL_CONCURRENCY: int = 3
     CRAWLER_ROBOTSTXT_OBEY: bool = True
     # Select a preset by name (see USER_AGENT_PRESETS above).
     # Set CRAWLER_USER_AGENT to a non-empty string to override the preset entirely.

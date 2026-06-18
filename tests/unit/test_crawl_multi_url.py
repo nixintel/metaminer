@@ -121,14 +121,26 @@ class TestMultiUrlTaskLoop:
         engine.dispose = AsyncMock()
         return engine, SessionLocal
 
-    def _run(self, urls, side_effects, cancel_sequence=None):
+    def _run(self, urls, side_effects, cancel_sequence=None, cancel_always=False,
+             url_concurrency=4):
         """
         Run run_crawl_task.apply() with controlled _crawl_one_url results.
 
-        side_effects: iterable of return dicts or Exceptions, consumed in
-                      order across all _crawl_one_url calls (including retries).
-        cancel_sequence: iterable of bools fed to check_cancel_flag in order;
-                         defaults to always-False.
+        side_effects: iterable of return dicts or Exceptions, consumed in order
+                      across all _crawl_one_url calls (including retries). Because
+                      the mocked _crawl_one_url never awaits a real future, the
+                      gather()-ed URL coroutines run to completion in creation
+                      order, so effects are consumed in URL order even with
+                      url_concurrency > 1.
+        cancel_sequence: iterable of bools fed to check_cancel_flag in order
+                         (then False once exhausted).
+        cancel_always: if True, check_cancel_flag always returns True.
+        url_concurrency: value for settings.CRAWL_URL_CONCURRENCY.
+
+        The live-progress committer is patched to a no-op: these tests assert the
+        authoritative final counts written by the terminal block, and asyncio.sleep
+        is mocked (so the real committer's `while True` would busy-loop). The
+        committer's DB write is covered separately by TestProgressCommitter.
         """
         db_task = self._make_db_task()
         engine, SessionLocal = self._make_session_factory(db_task)
@@ -143,15 +155,24 @@ class TestMultiUrlTaskLoop:
             return v
 
         def fake_check_cancel(_task_id):
+            if cancel_always:
+                return True
             return next(cancel_iter, False)
+
+        async def noop_committer(*_args, **_kwargs):
+            return
+
+        mock_settings = MagicMock()
+        mock_settings.CRAWL_URL_CONCURRENCY = url_concurrency
 
         with (
             patch("app.workers.crawl_tasks._crawl_one_url", side_effect=fake_crawl),
+            patch("app.workers.crawl_tasks._progress_committer", side_effect=noop_committer),
             patch("app.database.make_task_session_factory", return_value=(engine, SessionLocal)),
             patch("app.workers.crawl_tasks.check_cancel_flag", side_effect=fake_check_cancel),
             patch("app.workers.crawl_tasks.clear_cancel_flag"),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("config.settings", MagicMock()),
+            patch("config.settings", mock_settings),
         ):
             from app.workers.crawl_tasks import run_crawl_task
             run_crawl_task.apply(args=[1, 10, urls])
@@ -190,15 +211,25 @@ class TestMultiUrlTaskLoop:
         assert task.status == "failed"
 
     def test_cancellation_sets_cancelled_status(self):
-        # check_cancel_flag call order for 2 URLs, first URL succeeds:
-        #   call 0: outer loop before URL 0 → False (proceed)
-        #   call 1: inner retry loop before attempt 0 → False (proceed)
-        #   URL 0 crawl succeeds, DB updated
-        #   call 2: outer loop before URL 1 → True (cancel)
+        # New concurrent semantics: each URL coroutine independently checks the
+        # cancel flag at the top of every attempt. With the flag set, every URL
+        # returns {"status": "cancelled"} before crawling (no side effects
+        # consumed), and the aggregate marks the task cancelled.
         task = self._run(
             ["https://a.com", "https://b.com"],
-            [_result()],
-            cancel_sequence=[False, False, True],
+            [],
+            cancel_always=True,
+        )
+        assert task.status == "cancelled"
+
+    def test_cancellation_mid_run_marks_task_cancelled(self):
+        # If a URL raises _TaskCancelled mid-crawl (subprocess torn down on the
+        # cancel flag), that URL reports cancelled and the task is cancelled even
+        # though a sibling URL completed successfully.
+        from app.workers.crawl_tasks import _TaskCancelled
+        task = self._run(
+            ["https://a.com", "https://b.com"],
+            [_result(), _TaskCancelled()],
         )
         assert task.status == "cancelled"
 
@@ -271,15 +302,53 @@ class TestMultiUrlTaskLoop:
         db_task = self._make_db_task()
         engine, SessionLocal = self._make_session_factory(db_task)
 
+        async def noop_committer(*_args, **_kwargs):
+            return
+
+        mock_settings = MagicMock()
+        mock_settings.CRAWL_URL_CONCURRENCY = 4
+
         with (
             patch("app.workers.crawl_tasks._crawl_one_url", side_effect=capturing),
+            patch("app.workers.crawl_tasks._progress_committer", side_effect=noop_committer),
             patch("app.database.make_task_session_factory", return_value=(engine, SessionLocal)),
             patch("app.workers.crawl_tasks.check_cancel_flag", return_value=False),
             patch("app.workers.crawl_tasks.clear_cancel_flag"),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("config.settings", MagicMock()),
+            patch("config.settings", mock_settings),
         ):
             from app.workers.crawl_tasks import run_crawl_task
             run_crawl_task.apply(args=[1, 10, ["https://first.com", "https://second.com"]])
 
+        # The mocked crawl never awaits a real future, so gather()-ed coroutines
+        # run to completion in creation order: url_idx stays aligned to input order.
         assert calls == [("https://first.com", 0), ("https://second.com", 1)]
+
+
+class TestProgressCommitter:
+    """The single live-progress writer (_write_progress) used by the committer."""
+
+    def test_write_progress_writes_shared_counters_to_task_row(self):
+        import asyncio
+        from app.workers.crawl_tasks import _write_progress, _Progress
+
+        shared = _Progress()
+        shared.files_seen = 7
+        shared.processed = 4
+        shared.skipped = 3
+
+        db_task = MagicMock()
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=db_task)
+        mock_db.commit = AsyncMock()
+        ctx = AsyncMock()
+        ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        ctx.__aexit__ = AsyncMock(return_value=None)
+        SessionLocal = MagicMock(return_value=ctx)
+
+        asyncio.run(_write_progress(shared, SessionLocal, task_id=1))
+
+        assert db_task.files_found == 7
+        assert db_task.files_processed == 4
+        assert db_task.skipped_duplicates == 3
+        mock_db.commit.assert_awaited()

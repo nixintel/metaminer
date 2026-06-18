@@ -64,8 +64,21 @@ def make_task_session_factory():
 
     Callers MUST await engine.dispose() when done (use a try/finally block).
     Returns (engine, session_factory).
+
+    Pool sizing: a crawl task runs up to CRAWL_URL_CONCURRENCY URLs at once, each
+    holding a short-lived session per in-flight file, plus the progress committer.
+    Size the pool to that peak (+2 headroom) so concurrent URLs never block on
+    connection checkout. Note total DB connections across the system are roughly
+    CRAWL_WORKER_COUNT × pool_size + the manual workers + the API engine — keep the
+    sum under Postgres max_connections.
     """
-    task_engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
+    pool_size = max(5, settings.CRAWL_URL_CONCURRENCY + 2)
+    task_engine = create_async_engine(
+        settings.DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=pool_size,
+        max_overflow=2,
+    )
     session_factory = async_sessionmaker(
         task_engine,
         class_=AsyncSession,

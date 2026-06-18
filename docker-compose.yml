@@ -65,9 +65,16 @@ services:
 
   worker-crawl:
     build: .
-    # solo pool: one crawl at a time per container — avoids Celery's daemon-process
+    # solo pool: one crawl TASK at a time per container — avoids Celery's daemon-process
     # restriction that prevents Scrapy's subprocess from spawning.
-    # Set CRAWL_WORKER_COUNT in .env to run N crawls in parallel (default 1).
+    # Two concurrency knobs that multiply:
+    #   CRAWL_WORKER_COUNT      — number of these containers; lets separate queued
+    #                             tasks run in parallel (default 1).
+    #   CRAWL_URL_CONCURRENCY   — start URLs crawled at once *within* one task,
+    #                             each an isolated Scrapy subprocess (default 3).
+    # Total crawler subprocesses = CRAWL_WORKER_COUNT × CRAWL_URL_CONCURRENCY.
+    # Budget: keep CRAWL_WORKER_COUNT × (CRAWL_URL_CONCURRENCY + ~4) + manual workers
+    # + the API engine under Postgres max_connections (default 100).
     command: celery -A app.workers.celery_app worker --loglevel=info
              -Q crawl --pool=solo
              --hostname=worker-crawl@%h

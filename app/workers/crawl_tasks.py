@@ -5,16 +5,21 @@ Scrapy's Twisted reactor cannot be restarted once stopped, so each crawl task
 runs Scrapy in a fresh subprocess via multiprocessing.Process to avoid
 'reactor already started' errors across multiple task executions.
 
-Multi-URL support: the task accepts a list of start URLs and crawls each in
-sequence. If a URL fails, it is retried up to PER_URL_RETRIES times with a
-short delay. After all retries are exhausted the failure is logged and the
-next URL is attempted. The overall task only enters a hard failure state if
-an infrastructure-level exception occurs (database unreachable, etc.).
+Multi-URL support: the task accepts a list of start URLs and crawls up to
+CRAWL_URL_CONCURRENCY of them concurrently (bounded by an asyncio.Semaphore),
+each in its own isolated Scrapy subprocess. If a URL fails, it is retried up to
+PER_URL_RETRIES times with a short delay; that delay yields to sibling URLs
+rather than blocking them. After all retries are exhausted the failure is logged
+and recorded, while other URLs continue. The overall task only enters a hard
+failure state if an infrastructure-level exception occurs (database unreachable,
+etc.).
+
+A single debounced committer task writes live progress to the Task row so the
+concurrent URL coroutines never clobber each other's counters.
 """
 import asyncio
 import logging
 import multiprocessing
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -108,6 +113,51 @@ class _TaskCancelled(Exception):
     pass
 
 
+class _Progress:
+    """Live, task-wide progress counters shared across concurrent URL crawls.
+
+    asyncio is single-threaded, so plain ``+=`` between awaits is atomic and no
+    lock is needed. These drive the debounced DB committer; the authoritative
+    final counts are aggregated from each URL's returned stats.
+    """
+    __slots__ = ("files_seen", "processed", "skipped", "errors")
+
+    def __init__(self):
+        self.files_seen = 0
+        self.processed = 0
+        self.skipped = 0
+        self.errors = 0
+
+
+async def _write_progress(shared: "_Progress", SessionLocal, task_id: int):
+    """Write the current shared counters to the Task row (one transaction)."""
+    from app.models.task import Task
+    async with SessionLocal() as db:
+        t = await db.get(Task, task_id)
+        if t:
+            t.files_found = shared.files_seen
+            t.files_processed = shared.processed
+            t.skipped_duplicates = shared.skipped
+            await db.commit()
+
+
+async def _progress_committer(shared: "_Progress", SessionLocal, task_id: int):
+    """Single writer of live progress to the Task row.
+
+    Loops until cancelled, committing the shared counters every ~2s. Having one
+    committer (rather than each URL coroutine writing its own local counts)
+    prevents concurrent URLs from clobbering each other's progress.
+    """
+    while True:
+        await asyncio.sleep(2)
+        try:
+            await _write_progress(shared, SessionLocal, task_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("Progress committer write failed | task_id=%d | error=%s", task_id, e)
+
+
 async def _crawl_one_url(
     *,
     url: str,
@@ -124,6 +174,7 @@ async def _crawl_one_url(
     allow_cross_domain,
     SessionLocal,
     settings,
+    shared: "_Progress",
 ) -> dict:
     """
     Run Scrapy for a single URL.
@@ -133,7 +184,6 @@ async def _crawl_one_url(
     """
     import queue as _queue
     from app.crawler.download_manager import process_one_crawl_file
-    from app.models.task import Task
 
     jobdir = str(settings.TEMP_DIR.parent / "crawl_jobs" / f"task_{task_id}_url_{url_idx}")
     output_dir = str(settings.TEMP_DIR / f"crawl_{task_id}_url_{url_idx}")
@@ -172,6 +222,7 @@ async def _crawl_one_url(
     async def _handle_file_msg(msg: dict):
         nonlocal processed, errors, skipped_duplicates, files_seen
         files_seen += 1
+        shared.files_seen += 1
         outcome = await process_one_crawl_file(
             file_path=msg["path"],
             source_url=msg["source_url"],
@@ -186,18 +237,16 @@ async def _crawl_one_url(
         )
         if outcome == "processed":
             processed += 1
+            shared.processed += 1
         elif outcome == "skipped":
             skipped_duplicates += 1
+            shared.skipped += 1
         else:
             errors += 1
-
-        if (processed + skipped_duplicates) % 10 == 0:
-            async with SessionLocal() as db:
-                t = await db.get(Task, task_id)
-                if t:
-                    t.files_processed = processed
-                    t.skipped_duplicates = skipped_duplicates
-                    await db.commit()
+            shared.errors += 1
+        # Live progress is written to the DB by the single _progress_committer
+        # task from the shared counters — no per-URL commit here, which would
+        # clobber sibling URLs' progress under concurrency.
 
     try:
         while True:
@@ -233,7 +282,7 @@ async def _crawl_one_url(
                     proc.join(timeout=5)
                 raise _TaskCancelled()
 
-            time.sleep(1)
+            await asyncio.sleep(1)
 
         logger.info(
             "Scrapy subprocess exited | task_id=%d | url=%s | exit_code=%s",
@@ -340,6 +389,85 @@ def run_crawl_task(
                 )
                 await db.commit()
 
+            shared = _Progress()
+            cancelled = False
+            sem = asyncio.Semaphore(max(1, settings.CRAWL_URL_CONCURRENCY))
+
+            # Per-URL coroutine: owns its retry loop so a retry delay yields to
+            # sibling URLs instead of blocking them. Returns a tagged stats dict
+            # rather than mutating outer counters, so concurrent URLs can't race.
+            async def _crawl_url_with_retries(url_idx: int, url: str) -> dict:
+                async with sem:
+                    logger.info(
+                        "Processing URL %d/%d | task_id=%d | url=%s",
+                        url_idx + 1, len(urls), task_id, url,
+                    )
+                    for attempt in range(PER_URL_RETRIES + 1):
+                        if check_cancel_flag(task_id):
+                            return {"status": "cancelled", "url": url}
+                        try:
+                            result = await _crawl_one_url(
+                                url=url,
+                                url_idx=url_idx,
+                                task_id=task_id,
+                                project_id=project_id,
+                                depth_limit=depth_limit,
+                                allowed_file_types=allowed_file_types,
+                                full_download=full_download,
+                                retain_files=retain_files,
+                                deduplicate=deduplicate,
+                                robotstxt_obey=robotstxt_obey,
+                                crawl_images=crawl_images,
+                                allow_cross_domain=allow_cross_domain,
+                                SessionLocal=SessionLocal,
+                                settings=settings,
+                                shared=shared,
+                            )
+                            return {"status": "ok", "url": url, **result}
+                        except _TaskCancelled:
+                            return {"status": "cancelled", "url": url}
+                        except Exception as e:
+                            if attempt < PER_URL_RETRIES:
+                                logger.warning(
+                                    "URL crawl failed (attempt %d/%d), retrying in %ds | "
+                                    "task_id=%d | url=%s | error=%s",
+                                    attempt + 1, PER_URL_RETRIES + 1,
+                                    PER_URL_RETRY_DELAY, task_id, url, e,
+                                )
+                                await asyncio.sleep(PER_URL_RETRY_DELAY)
+                            else:
+                                logger.error(
+                                    "URL crawl failed after %d attempt(s), skipping | "
+                                    "task_id=%d | url=%s | error=%s",
+                                    PER_URL_RETRIES + 1, task_id, url, e,
+                                    exc_info=True,
+                                )
+                                return {"status": "exhausted", "url": url, "error": str(e)}
+
+            logger.info(
+                "Crawling %d URL(s) with url-concurrency=%d | task_id=%d",
+                len(urls), min(len(urls), max(1, settings.CRAWL_URL_CONCURRENCY)), task_id,
+            )
+
+            # Single live-progress writer (see _progress_committer) plus the
+            # bounded fan-out. return_exceptions=True keeps one bad URL from
+            # cancelling its siblings and leaking their subprocesses.
+            committer = asyncio.create_task(
+                _progress_committer(shared, SessionLocal, task_id)
+            )
+            try:
+                results = await asyncio.gather(
+                    *[_crawl_url_with_retries(i, u) for i, u in enumerate(urls)],
+                    return_exceptions=True,
+                )
+            finally:
+                committer.cancel()
+                try:
+                    await committer
+                except asyncio.CancelledError:
+                    pass
+
+            # Aggregate authoritative final counts from each URL's returned stats.
             total_files_seen = 0
             total_processed = 0
             total_errors = 0
@@ -347,78 +475,31 @@ def run_crawl_task(
             total_failure_count = 0
             all_failed_url_items: list[dict] = []
             urls_exhausted: list[dict] = []
-            cancelled = False
 
-            for url_idx, url in enumerate(urls):
-                if check_cancel_flag(task_id):
+            for res in results:
+                if isinstance(res, BaseException):
+                    # An exception escaped the per-URL coroutine despite its
+                    # own handling — record it so the failure is never silent.
+                    logger.error(
+                        "Unexpected error in URL crawl coroutine | task_id=%d | error=%s",
+                        task_id, res, exc_info=res,
+                    )
+                    urls_exhausted.append({"url": "<unknown>", "error": str(res)})
+                    continue
+                status = res.get("status")
+                if status == "cancelled":
                     cancelled = True
-                    break
-
-                logger.info(
-                    "Processing URL %d/%d | task_id=%d | url=%s",
-                    url_idx + 1, len(urls), task_id, url,
-                )
-
-                for attempt in range(PER_URL_RETRIES + 1):
-                    if check_cancel_flag(task_id):
-                        cancelled = True
-                        break
-                    try:
-                        result = await _crawl_one_url(
-                            url=url,
-                            url_idx=url_idx,
-                            task_id=task_id,
-                            project_id=project_id,
-                            depth_limit=depth_limit,
-                            allowed_file_types=allowed_file_types,
-                            full_download=full_download,
-                            retain_files=retain_files,
-                            deduplicate=deduplicate,
-                            robotstxt_obey=robotstxt_obey,
-                            crawl_images=crawl_images,
-                            allow_cross_domain=allow_cross_domain,
-                            SessionLocal=SessionLocal,
-                            settings=settings,
-                        )
-                        total_files_seen += result["files_seen"]
-                        total_processed += result["processed"]
-                        total_errors += result["errors"]
-                        total_skipped += result["skipped"]
-                        total_failure_count += result["failure_count"]
-                        all_failed_url_items.extend(result["failed_urls"])
-                        break  # success — move to next URL
-                    except _TaskCancelled:
-                        cancelled = True
-                        break
-                    except Exception as e:
-                        if attempt < PER_URL_RETRIES:
-                            logger.warning(
-                                "URL crawl failed (attempt %d/%d), retrying in %ds | "
-                                "task_id=%d | url=%s | error=%s",
-                                attempt + 1, PER_URL_RETRIES + 1,
-                                PER_URL_RETRY_DELAY, task_id, url, e,
-                            )
-                            await asyncio.sleep(PER_URL_RETRY_DELAY)
-                        else:
-                            logger.error(
-                                "URL crawl failed after %d attempt(s), skipping | "
-                                "task_id=%d | url=%s | error=%s",
-                                PER_URL_RETRIES + 1, task_id, url, e,
-                                exc_info=True,
-                            )
-                            urls_exhausted.append({"url": url, "error": str(e)})
-
-                if cancelled:
-                    break
-
-                # Update cumulative progress in the DB after each URL completes
-                async with SessionLocal() as db:
-                    t = await db.get(Task, task_id)
-                    if t:
-                        t.files_found = total_files_seen
-                        t.files_processed = total_processed
-                        t.skipped_duplicates = total_skipped
-                        await db.commit()
+                    continue
+                if status == "exhausted":
+                    urls_exhausted.append({"url": res["url"], "error": res.get("error", "")})
+                    continue
+                # status == "ok"
+                total_files_seen += res["files_seen"]
+                total_processed += res["processed"]
+                total_errors += res["errors"]
+                total_skipped += res["skipped"]
+                total_failure_count += res["failure_count"]
+                all_failed_url_items.extend(res["failed_urls"])
 
             # ── Terminal state ──────────────────────────────────────────────
             if cancelled:
