@@ -43,6 +43,7 @@ def _run_scrapy_in_process(
     crawl_images: bool | None = None,
     jobdir: str | None = None,
     allow_cross_domain: bool | None = None,
+    task_id: int | None = None,
 ):
     """Runs inside a child process. Puts result dict into result_queue on completion."""
     try:
@@ -50,6 +51,31 @@ def _run_scrapy_in_process(
         from app.crawler.scrapy_crawler import MetaminerSpider
         from config import settings as cfg
         from urllib.parse import urlparse, urlunparse
+
+        # This is a fresh spawned process — Celery's worker_process_init logging setup
+        # did not run here, so the spider's own logs would never reach the DB. Attach a
+        # Redis log handler (WARNING+, to bound volume) that stamps task_id on every
+        # record, so crawl failures (e.g. blocked start URL) are visible in the task's logs.
+        if task_id is not None:
+            try:
+                import logging as _logging
+                from app.utils.logging_config import RedisQueueHandler
+
+                class _TaskIdFilter(_logging.Filter):
+                    def filter(self, record):
+                        record.task_id = task_id
+                        return True
+
+                _h = RedisQueueHandler()
+                _h.setLevel(_logging.WARNING)
+                _h.setFormatter(_logging.Formatter(
+                    "%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%dT%H:%M:%S"
+                ))
+                _h.addFilter(_TaskIdFilter())
+                _logging.getLogger().addHandler(_h)
+                _logging.getLogger().setLevel(_logging.INFO)
+            except Exception:
+                pass
 
         process_settings = {
             **( {"JOBDIR": jobdir} if jobdir else {} ),
@@ -111,6 +137,29 @@ def _run_scrapy_in_process(
 class _TaskCancelled(Exception):
     """Raised inside _crawl_one_url when a cancellation flag is detected."""
     pass
+
+
+class _StartUrlError(Exception):
+    """Raised when the start URL never returned a successful response.
+
+    retryable=False for permanent failures (e.g. DNS resolution failure, connection
+    refused) that won't recover on retry, so the caller can fail fast instead of
+    burning the per-URL retry ladder.
+    """
+    def __init__(self, message: str, retryable: bool = True):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+# Substrings in a start-URL failure reason that indicate a permanent (non-retryable)
+# error — retrying the whole crawl won't help.
+_PERMANENT_START_ERRORS = (
+    "DNS lookup failed",
+    "CannotResolveHost",
+    "Connection was refused",
+    "ConnectionRefused",
+    "No route to host",
+)
 
 
 class _Progress:
@@ -208,7 +257,8 @@ async def _crawl_one_url(
     proc = ctx.Process(
         target=_run_scrapy_in_process,
         args=(url, allowed_file_types, depth_limit, full_download, output_dir,
-              result_queue, robotstxt_obey, crawl_images, jobdir, allow_cross_domain),
+              result_queue, robotstxt_obey, crawl_images, jobdir, allow_cross_domain,
+              task_id),
         daemon=False,
     )
     proc.start()
@@ -320,6 +370,7 @@ async def _crawl_one_url(
             logger.warning(
                 "Crawl request failure | task_id=%d | url=%s | error=%s",
                 task_id, item.get("url"), item.get("error"),
+                extra={"task_id": task_id},
             )
 
     logger.info(
@@ -327,10 +378,27 @@ async def _crawl_one_url(
         "files_seen=%d | request_failures=%d | closed_reason=%s",
         task_id, url, files_seen,
         failure_count, crawl_done_msg.get("closed_reason"),
+        extra={"task_id": task_id},
     )
 
     import shutil
     shutil.rmtree(jobdir, ignore_errors=True)
+
+    # If the start URL itself never returned a successful response (blocked/geoblocked,
+    # 403/451, connection reset, timeout), the crawl couldn't begin. Raise so the caller
+    # retries and ultimately records the URL as failed — instead of a silent "completed".
+    if not crawl_done_msg.get("start_url_succeeded", True):
+        failed = crawl_done_msg.get("failed_urls", [])
+        reason = "; ".join(
+            f"{i.get('url')}: {i.get('error')}" for i in failed
+        ) or (
+            f"start URL did not return a successful response "
+            f"(closed_reason={crawl_done_msg.get('closed_reason')}; possible block/geoblock/timeout)"
+        )
+        # Permanent failures (DNS NXDOMAIN, connection refused) won't recover on retry —
+        # fail fast rather than re-running the whole crawl 3× with 30s gaps.
+        retryable = not any(s in reason for s in _PERMANENT_START_ERRORS)
+        raise _StartUrlError(f"Start URL failed: {reason}", retryable=retryable)
 
     return {
         "files_seen": files_seen,
@@ -369,6 +437,7 @@ def run_crawl_task(
             "file_types=%s | deduplicate=%s | retain_files=%s | full_download=%s",
             task_id, urls, depth_limit, allowed_file_types,
             deduplicate, retain_files, full_download,
+            extra={"task_id": task_id},
         )
 
         task_engine, SessionLocal = make_task_session_factory()
@@ -440,12 +509,24 @@ def run_crawl_task(
                         except _TaskCancelled:
                             return {"status": "cancelled", "url": url}
                         except Exception as e:
+                            # Permanent start-URL failures (DNS/connection refused) won't
+                            # recover — don't waste the retry ladder on them.
+                            permanent = isinstance(e, _StartUrlError) and not e.retryable
+                            if permanent:
+                                logger.error(
+                                    "URL crawl failed (permanent, not retrying) | "
+                                    "task_id=%d | url=%s | error=%s",
+                                    task_id, url, e,
+                                    extra={"task_id": task_id},
+                                )
+                                return {"status": "exhausted", "url": url, "error": str(e)}
                             if attempt < PER_URL_RETRIES:
                                 logger.warning(
                                     "URL crawl failed (attempt %d/%d), retrying in %ds | "
                                     "task_id=%d | url=%s | error=%s",
                                     attempt + 1, PER_URL_RETRIES + 1,
                                     PER_URL_RETRY_DELAY, task_id, url, e,
+                                    extra={"task_id": task_id},
                                 )
                                 await asyncio.sleep(PER_URL_RETRY_DELAY)
                             else:
@@ -454,6 +535,7 @@ def run_crawl_task(
                                     "task_id=%d | url=%s | error=%s",
                                     PER_URL_RETRIES + 1, task_id, url, e,
                                     exc_info=True,
+                                    extra={"task_id": task_id},
                                 )
                                 return {"status": "exhausted", "url": url, "error": str(e)}
 
@@ -535,13 +617,17 @@ def run_crawl_task(
             if total_errors:
                 error_parts.append(f"{total_errors} file(s) failed to process")
 
-            logger.info(
-                "Crawl task complete | task_id=%d | status=%s | urls=%d | "
+            _log = logger.error if final_status == "failed" else logger.info
+            _log(
+                "Crawl task %s | task_id=%d | status=%s | urls=%d | "
                 "files_seen=%d | processed=%d | skipped=%d | "
-                "file_errors=%d | urls_failed=%d",
+                "file_errors=%d | urls_failed=%d%s",
+                "FAILED" if final_status == "failed" else "complete",
                 task_id, final_status, len(urls),
                 total_files_seen, total_processed, total_skipped,
                 total_errors, len(urls_exhausted),
+                ("; " + "; ".join(error_parts)) if error_parts else "",
+                extra={"task_id": task_id},
             )
 
             async with SessionLocal() as db:

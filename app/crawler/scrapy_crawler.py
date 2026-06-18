@@ -58,6 +58,10 @@ class MetaminerSpider(CrawlSpider):
         self.response_headers: dict[str, dict] = {} # local_path -> {etag, last_modified}
         self.failed_urls: list[dict[str, str]] = []
         self.failure_count: int = 0
+        # Set True once the start URL returns a successful (2xx) response that reaches
+        # parse_start_url. Stays False if the start URL is blocked/errors (e.g. geoblock,
+        # 403/451, connection reset, timeout) so the caller can fail the task correctly.
+        self.start_url_succeeded: bool = False
         self.full_download = full_download
         self.crawl_images = crawl_images
         self._result_queue = result_queue  # optional streaming queue
@@ -157,10 +161,17 @@ class MetaminerSpider(CrawlSpider):
             self.crawler.settings.getbool("AUTOTHROTTLE_ENABLED"),
             not bool(getattr(self, "allowed_domains", None)),
         )
+        # Attach handle_error as the errback to the start request(s). CrawlSpider does
+        # not set one, so without this a failed/blocked start URL (geoblock, 403/451,
+        # connection reset, timeout) is silently swallowed and the crawl closes as
+        # "finished" with zero recorded failures. replace() preserves the callback.
         async for req in super().start():
-            yield req
+            yield req.replace(errback=self.handle_error)
 
     def parse_start_url(self, response):
+        # Reaching here means the start URL returned a response that passed the HTTP-error
+        # middleware (a 2xx, or an allowed status) — the crawl genuinely began.
+        self.start_url_succeeded = True
         content_type = (
             response.headers.get("Content-Type", b"")
             .decode("utf-8", errors="ignore")
@@ -337,4 +348,5 @@ class MetaminerSpider(CrawlSpider):
                 "failed_urls": self.failed_urls,
                 "failure_count": self.failure_count,
                 "closed_reason": str(reason),
+                "start_url_succeeded": self.start_url_succeeded,
             })
