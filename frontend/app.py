@@ -3,12 +3,12 @@ import io
 import json
 import logging
 import os
+import re
 import uuid
 from urllib.parse import urlencode
 
 import httpx
 from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
-from werkzeug.utils import secure_filename
 
 from frontend import api_client
 
@@ -52,12 +52,32 @@ def _filter_groups():
         return []
 
 
+# Strip path-illegal/control characters but KEEP Unicode (e.g. Cyrillic) and the extension.
+# (werkzeug.secure_filename is ASCII-only — it deletes non-Latin names entirely, which both
+# loses the real filename and can drop the extension.)
+_UNSAFE_FILENAME_CHARS = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
+
+
+def _safe_upload_name(filename: str) -> str:
+    # Folder uploads send a relative path as the filename — keep just the basename.
+    name = (filename or "").replace("\\", "/").split("/")[-1]
+    name = _UNSAFE_FILENAME_CHARS.sub("_", name).strip().strip(".")
+    return name or "upload"
+
+
 def _save_upload(file) -> str:
-    """Save an uploaded FileStorage object to the shared temp dir. Returns the saved path."""
+    """Save an uploaded FileStorage object to the shared temp dir. Returns the saved path.
+
+    Preserves the original filename (incl. non-Latin scripts and the extension) so it
+    appears in the extracted metadata and so exiftool sees the correct extension. A short
+    uuid suffix is added only on a name collision.
+    """
     os.makedirs(TEMP_DIR, exist_ok=True)
-    ext = os.path.splitext(secure_filename(file.filename))[1]
-    filename = f"{uuid.uuid4().hex}{ext}"
-    path = os.path.join(TEMP_DIR, filename)
+    safe = _safe_upload_name(file.filename)
+    path = os.path.join(TEMP_DIR, safe)
+    if os.path.exists(path):
+        stem, ext = os.path.splitext(safe)
+        path = os.path.join(TEMP_DIR, f"{stem}_{uuid.uuid4().hex[:8]}{ext}")
     file.save(path)
     return path
 
@@ -356,12 +376,14 @@ def submit_manual_post():
     project_id = request.form.get("project_id", type=int)
     retain_files = bool(request.form.get("retain_files"))
     pdf_mode = bool(request.form.get("pdf_mode"))
-    all_uploads = [f for f in request.files.getlist("files") if f and f.filename]
+    # Accept individual files AND a selected folder (webkitdirectory posts under folder_files).
+    uploads = request.files.getlist("files") + request.files.getlist("folder_files")
+    all_uploads = [f for f in uploads if f and f.filename]
     if not project_id:
         flash("Project is required.", "error")
         return redirect(url_for("submit_manual"))
     if not all_uploads:
-        flash("Please select at least one file.", "error")
+        flash("Please select at least one file or folder.", "error")
         return redirect(url_for("submit_manual"))
     try:
         paths = [_save_upload(f) for f in all_uploads]
@@ -683,6 +705,25 @@ def metadata_interesting(rid):
             record={"id": rid, "interesting": not target},
             toggle_error=_api_error(e, "update record"),
         )
+
+
+@app.post("/metadata/<int:rid>/delete")
+def metadata_delete(rid):
+    """Delete a metadata record. From the results table (HTMX) the row is removed in place;
+    from the detail page it redirects back to search."""
+    htmx = request.headers.get("HX-Request") == "true"
+    try:
+        api_client.delete_metadata(rid)
+        if htmx:
+            return ""  # empty response → hx-swap removes the row
+        flash(f"Metadata record #{rid} deleted.", "success")
+    except Exception as e:
+        if htmx:
+            # Return a well-formed replacement row that surfaces the error (outerHTML swap).
+            return f'<tr><td colspan="99" class="flash flash-error">Delete failed: {_api_error(e)}</td></tr>', 200
+        flash(_api_error(e, "delete record"), "error")
+        return redirect(url_for("metadata_detail", rid=rid))
+    return redirect(url_for("metadata_search"))
 
 
 # ── Logs ──────────────────────────────────────────────────────────────────────

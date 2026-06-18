@@ -6,7 +6,13 @@
     Metadata Record #{{ record.id }}
     <span style="margin-left:0.4rem; vertical-align:middle;">{% include "metadata/_interesting_toggle.html" %}</span>
   </h2>
-  <a href="{{ url_for('metadata_search') }}" role="button" class="outline secondary btn-sm">← Back</a>
+  <span>
+    <a href="{{ url_for('metadata_search') }}" role="button" class="outline secondary btn-sm">← Back</a>
+    <form action="{{ url_for('metadata_delete', rid=record.id) }}" method="POST" style="display:inline;"
+          onsubmit="return confirm('Delete metadata record #{{ record.id }}? This permanently removes it.');">
+      <button type="submit" class="outline secondary btn-sm" style="color:#991b1b; border-color:#991b1b;">Delete</button>
+    </form>
+  </span>
 </div>
 {% if record.interesting %}
 <p class="muted" style="margin-top:-0.5rem;">

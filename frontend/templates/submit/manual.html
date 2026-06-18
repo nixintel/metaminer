@@ -2,7 +2,7 @@
 {% block title %}Manual Upload – Metaminer{% endblock %}
 
 {% block page_description %}
-<p class="page-desc">Upload one or more files for metadata extraction. Processing runs in the background — you'll get a Task ID to monitor progress.</p>
+<p class="page-desc">Upload one or more files — or an entire folder (subfolders included) — for metadata extraction. Processing runs in the background — you'll get a Task ID to monitor progress.</p>
 {% endblock %}
 
 {% block content %}
@@ -20,11 +20,18 @@
       {% endfor %}
     </select>
 
-    <label>Select files</label>
+    <label>Select individual files</label>
     <div class="upload-zone">
       <p style="margin: 0 0 0.5rem; font-weight: 600;">Drop files here, or click to browse</p>
       <input type="file" name="files" multiple>
       <p class="upload-hint">Hold Ctrl / Cmd to select multiple files</p>
+    </div>
+
+    <label>— or select an entire folder —</label>
+    <div class="upload-zone" style="border-color: var(--pico-muted-border-color);">
+      <p style="margin: 0 0 0.5rem; font-weight: 600;">Click to choose a folder</p>
+      <input type="file" name="folder_files" webkitdirectory directory multiple>
+      <p class="upload-hint">All files inside the selected folder will be submitted (subdirectories included)</p>
     </div>
 
     <fieldset>

@@ -3,6 +3,22 @@ from celery.signals import worker_process_init
 from kombu import Queue
 from config import settings
 
+# Import every model so SQLAlchemy's mapper registry is complete in worker processes
+# (workers don't import app.main, where the API registers them). Without this, relationships
+# that reference a class by name (e.g. MetadataRecord.filter_matches -> "MetadataFilterMatch")
+# fail to configure on first query.
+import app.models.project          # noqa: E402,F401
+import app.models.task             # noqa: E402,F401
+import app.models.file_submission  # noqa: E402,F401
+import app.models.metadata_record  # noqa: E402,F401
+import app.models.metadata_filter_match  # noqa: E402,F401
+import app.models.filter_criteria  # noqa: E402,F401
+import app.models.filter_group     # noqa: E402,F401
+import app.models.log_entry        # noqa: E402,F401
+import app.models.scheduled_crawl  # noqa: E402,F401
+import app.models.scheduled_telegram_scrape  # noqa: E402,F401
+import app.models.telegram_credentials  # noqa: E402,F401
+
 
 @worker_process_init.connect
 def init_worker_logging(**kwargs):

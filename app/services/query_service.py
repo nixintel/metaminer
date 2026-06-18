@@ -135,6 +135,32 @@ async def set_metadata_interesting(db: AsyncSession, metadata_id: int, interesti
     return await get_metadata_by_id(db, metadata_id)
 
 
+async def delete_metadata_record(db: AsyncSession, metadata_id: int) -> bool:
+    """Delete a metadata record. Returns False if it doesn't exist.
+
+    Its filter-match rows cascade via FK. If this was the parent file submission's last
+    record, the now-empty submission is removed too (avoids orphans and lets the file be
+    re-ingested, since crawl/manual dedup keys on the submission).
+    """
+    from sqlalchemy import func
+    record = await db.get(MetadataRecord, metadata_id)
+    if record is None:
+        return False
+    submission_id = record.submission_id
+    await db.delete(record)
+    await db.flush()
+    remaining = (await db.execute(
+        select(func.count()).select_from(MetadataRecord)
+        .where(MetadataRecord.submission_id == submission_id)
+    )).scalar()
+    if remaining == 0:
+        submission = await db.get(FileSubmission, submission_id)
+        if submission is not None:
+            await db.delete(submission)
+            await db.flush()
+    return True
+
+
 async def query_metadata(db: AsyncSession, params: dict) -> list[dict]:
     q = (
         select(MetadataRecord, FileSubmission, Project)

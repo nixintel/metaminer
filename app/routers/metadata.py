@@ -8,6 +8,7 @@ from app.services.query_service import (
     query_metadata_tree,
     get_metadata_by_id,
     set_metadata_interesting,
+    delete_metadata_record,
 )
 from app.schemas.metadata import QueryRequest, MetadataRecordUpdate
 
@@ -80,6 +81,12 @@ async def get_metadata(metadata_id: int, db: AsyncSession = Depends(get_db)):
     if record is None:
         raise HTTPException(status_code=404, detail=f"Metadata record {metadata_id} not found")
     return record
+
+
+@router.delete("/{metadata_id}", status_code=204)
+async def delete_metadata(metadata_id: int, db: AsyncSession = Depends(get_db)):
+    if not await delete_metadata_record(db, metadata_id):
+        raise HTTPException(status_code=404, detail=f"Metadata record {metadata_id} not found")
 
 
 @router.patch("/{metadata_id}")

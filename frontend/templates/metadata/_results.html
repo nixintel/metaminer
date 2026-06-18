@@ -63,7 +63,16 @@
         <td class="cell-truncate" title="{{ r.title }}">{{ r.title or '—' }}</td>
         <td style="white-space:nowrap; font-size:0.8rem;">{{ (r.extracted_at or '')[:10] }}</td>
         <td>{{ r.project_name or r.project_id }}</td>
-        <td><a href="{{ url_for('metadata_detail', rid=r.id) }}">View</a></td>
+        <td style="white-space:nowrap;">
+          <a href="{{ url_for('metadata_detail', rid=r.id) }}">View</a>
+          <button type="button"
+                  style="background:none; border:none; padding:0; margin-left:0.5rem; color:#991b1b; cursor:pointer; text-decoration:underline; font-size:inherit;"
+                  hx-post="{{ url_for('metadata_delete', rid=r.id) }}"
+                  hx-target="closest tr" hx-swap="outerHTML"
+                  hx-confirm="Delete metadata record #{{ r.id }}? This permanently removes it.">
+            Delete
+          </button>
+        </td>
         <td style="text-align:center;">{% with record=r %}{% include "metadata/_interesting_toggle.html" %}{% endwith %}</td>
       </tr>
       {% endfor %}
