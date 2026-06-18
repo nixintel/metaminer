@@ -10,7 +10,7 @@ from app.services.query_service import (
     set_metadata_interesting,
     delete_metadata_record,
 )
-from app.schemas.metadata import QueryRequest, MetadataRecordUpdate
+from app.schemas.metadata import QueryRequest, MetadataRecordUpdate, MetadataBulkDelete
 
 router = APIRouter(prefix="/metadata", tags=["metadata"])
 
@@ -73,6 +73,16 @@ async def search_metadata(
 @router.post("/query")
 async def query_metadata_post(request: QueryRequest, db: AsyncSession = Depends(get_db)):
     return await query_metadata_tree(db, request.model_dump())
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_metadata(body: MetadataBulkDelete, db: AsyncSession = Depends(get_db)):
+    """Delete several metadata records at once. Returns how many were deleted."""
+    deleted = 0
+    for mid in body.ids:
+        if await delete_metadata_record(db, mid):
+            deleted += 1
+    return {"requested": len(body.ids), "deleted": deleted}
 
 
 @router.get("/{metadata_id}")

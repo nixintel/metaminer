@@ -2,6 +2,12 @@
 <div id="results-container">
   {% if records %}
   <div style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:0.75rem;">
+    <div style="align-self:center;">
+      <button type="button" id="delete-selected-btn" class="outline secondary btn-sm"
+              style="color:#991b1b; border-color:#991b1b;" disabled>
+        Delete selected (<span id="selected-count">0</span>)
+      </button>
+    </div>
     <div>
       <label style="font-size:0.8rem; color:var(--pico-muted-color); display:block; margin-bottom:0.2rem;">Filter by filetype</label>
       <select id="filter-type" style="min-width:130px; margin:0; width:auto;">
@@ -41,13 +47,14 @@
   <table id="results-table">
     <thead>
       <tr>
-        <th class="sortable" data-col="0">ID <span class="sort-icon">↕</span></th>
-        <th class="sortable" data-col="1">File <span class="sort-icon">↕</span></th>
-        <th class="sortable" data-col="2">Type <span class="sort-icon">↕</span></th>
-        <th class="sortable" data-col="3">Author <span class="sort-icon">↕</span></th>
-        <th class="sortable" data-col="4">Title <span class="sort-icon">↕</span></th>
-        <th class="sortable" data-col="5">Extracted <span class="sort-icon">↕</span></th>
-        <th class="sortable" data-col="6">Project <span class="sort-icon">↕</span></th>
+        <th style="width:1.5rem; text-align:center;"><input type="checkbox" id="select-all" title="Select all on this page"></th>
+        <th class="sortable" data-col="1">ID <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="2">File <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="3">Type <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="4">Author <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="5">Title <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="6">Extracted <span class="sort-icon">↕</span></th>
+        <th class="sortable" data-col="7">Project <span class="sort-icon">↕</span></th>
         <th></th>
         <th title="Interesting" style="text-align:center;">★</th>
       </tr>
@@ -56,6 +63,7 @@
       {% for r in records %}
       <tr data-type="{{ (r.file_type or '') | lower }}"
           data-project="{{ r.project_name or r.project_id }}">
+        <td style="text-align:center;"><input type="checkbox" class="row-select" value="{{ r.id }}"></td>
         <td>{{ r.id }}</td>
         <td class="cell-truncate" title="{{ r.file_name }}">{{ r.file_name or '—' }}</td>
         <td>{{ r.file_type or '—' }}</td>
@@ -124,8 +132,68 @@
     });
     if (countEl) countEl.textContent = n;
   }
-  ftSel.addEventListener('change', applyFilters);
-  fpSel.addEventListener('change', applyFilters);
+  ftSel.addEventListener('change', () => { applyFilters(); refreshSelection(); });
+  fpSel.addEventListener('change', () => { applyFilters(); refreshSelection(); });
+
+  // ── Selection + bulk delete ──────────────────────────────────────────────
+  const selectAll = document.getElementById('select-all');
+  const delBtn    = document.getElementById('delete-selected-btn');
+  const selCount  = document.getElementById('selected-count');
+
+  const rowBoxes = () => [...tbody.querySelectorAll('.row-select')];
+  const visibleBoxes = () => rowBoxes().filter(c => !c.closest('tr').hidden);
+  const selectedIds = () => visibleBoxes().filter(c => c.checked).map(c => +c.value);
+
+  function refreshSelection() {
+    const n = selectedIds().length;
+    if (selCount) selCount.textContent = n;
+    if (delBtn) delBtn.disabled = n === 0;
+    if (selectAll) {
+      const vis = visibleBoxes();
+      selectAll.checked = vis.length > 0 && vis.every(c => c.checked);
+    }
+  }
+
+  if (selectAll) selectAll.addEventListener('change', () => {
+    visibleBoxes().forEach(c => { c.checked = selectAll.checked; });
+    refreshSelection();
+  });
+  tbody.addEventListener('change', e => {
+    if (e.target.classList && e.target.classList.contains('row-select')) refreshSelection();
+  });
+  // Single-row HTMX deletes remove a <tr>; keep the selection counter in sync.
+  table.addEventListener('htmx:afterSwap', refreshSelection);
+
+  if (delBtn) delBtn.addEventListener('click', async () => {
+    const ids = selectedIds();
+    if (!ids.length) return;
+    if (!confirm('Delete ' + ids.length + ' selected metadata record(s)? This permanently removes them.')) return;
+    delBtn.disabled = true;
+    try {
+      const resp = await fetch('{{ url_for("metadata_bulk_delete") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.error) {
+        alert('Delete failed: ' + (data.error || ('HTTP ' + resp.status)));
+        delBtn.disabled = false;
+        return;
+      }
+      const idset = new Set(ids);
+      rowBoxes().forEach(c => { if (idset.has(+c.value)) c.closest('tr').remove(); });
+      if (selectAll) selectAll.checked = false;
+    } catch (err) {
+      alert('Delete failed: ' + err);
+      delBtn.disabled = false;
+      return;
+    }
+    applyFilters();
+    refreshSelection();
+  });
+
+  refreshSelection();
 
   // Sorting
   let sortCol = -1, sortAsc = true;
@@ -146,7 +214,7 @@
     rows.sort((a, b) => {
       const av = a.cells[col]?.textContent.trim() ?? '';
       const bv = b.cells[col]?.textContent.trim() ?? '';
-      if (col === 0) return sortAsc ? (+av || 0) - (+bv || 0) : (+bv || 0) - (+av || 0);
+      if (col === 1) return sortAsc ? (+av || 0) - (+bv || 0) : (+bv || 0) - (+av || 0);
       return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
     });
     rows.forEach(r => tbody.appendChild(r));

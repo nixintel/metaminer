@@ -707,6 +707,19 @@ def metadata_interesting(rid):
         )
 
 
+@app.post("/metadata/bulk-delete")
+def metadata_bulk_delete():
+    """Delete multiple metadata records (JSON body {ids:[...]}). Returns {deleted, requested}."""
+    payload = request.get_json(silent=True) or {}
+    ids = [int(i) for i in payload.get("ids", [])]
+    if not ids:
+        return {"deleted": 0, "requested": 0}
+    try:
+        return api_client.bulk_delete_metadata(ids)
+    except Exception as e:
+        return {"error": _api_error(e, "delete records")}, 502
+
+
 @app.post("/metadata/<int:rid>/delete")
 def metadata_delete(rid):
     """Delete a metadata record. From the results table (HTMX) the row is removed in place;

@@ -117,6 +117,9 @@ def set_metadata_interesting(rid, interesting):
 def delete_metadata(rid):
     return _delete(f"/metadata/{rid}")
 
+def bulk_delete_metadata(ids):
+    return _post("/metadata/bulk-delete", json={"ids": ids})
+
 def query_metadata_tree(body):
     r = httpx.post(f"{_API}/metadata/query", json=body, timeout=_TIMEOUT)
     r.raise_for_status()

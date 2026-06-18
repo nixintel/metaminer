@@ -44,6 +44,10 @@ class MetadataRecordResponse(BaseModel):
         return cls(**data)
 
 
+class MetadataBulkDelete(BaseModel):
+    ids: list[int]
+
+
 class MetadataRecordUpdate(BaseModel):
     # Typed model (not a free-form dict) so a later auto-classification phase can add
     # e.g. interesting_reason without breaking existing callers.
