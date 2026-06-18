@@ -71,10 +71,14 @@ class TestInlineTagging:
 
     async def test_passed_filterset_tags_record(self, db, tmp_path):
         p = await self._project(db)
+        # Real filter row (match rows FK to filters.id).
+        flt = FilterCriteria(name="Secrets", filter_type="keyword", value="secret", is_active=True)
+        db.add(flt)
+        await db.flush()
         f = tmp_path / "secret_report.txt"
         f.write_text("hello world")
         # FileName ("secret_report.txt") lands in raw_json → keyword "secret" matches.
-        fs = FilterSet([CompiledFilter(1, "Secrets", "keyword", "secret", None)])
+        fs = FilterSet([CompiledFilter(flt.id, flt.name, flt.filter_type, flt.value, None)])
         result = await process_single_file(
             db=db, project_id=p.id, file_path=str(f),
             submission_mode="manual", active_filters=fs,
@@ -165,50 +169,61 @@ class TestBackfill:
         async with SessionLocal() as db:
             return await db.get(model, pk)
 
+    async def _match_count(self, SessionLocal, metadata_id):
+        from app.models.metadata_filter_match import MetadataFilterMatch
+        from sqlalchemy import select, func
+        async with SessionLocal() as db:
+            return (await db.execute(
+                select(func.count()).select_from(MetadataFilterMatch)
+                .where(MetadataFilterMatch.metadata_id == metadata_id)
+            )).scalar()
+
     async def test_whole_db_backfill_global_filter(self, test_engine):
         SessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
         ids = await self._seed(SessionLocal)
         tid = await self._new_task(SessionLocal, None)
 
-        scanned, flagged = await backfill_scan(SessionLocal, tid, [ids["gfilter"]], None)
-
-        # Two False rows (rec_match in p1, rec_p2 in p2) both match "invoice"; the manual
-        # row is skipped by the interesting=false clause.
-        assert flagged == 2
-        assert scanned == 2
+        # Scan-all: every record matches "invoice" (rec_match via source_url, rec_manual +
+        # rec_p2 via raw_json). new_matches = 3 match rows; scanned = all 3 rows.
+        scanned, new_matches = await backfill_scan(SessionLocal, tid, [ids["gfilter"]], None)
+        assert scanned == 3
+        assert new_matches == 3
 
         rec_match = await self._get(SessionLocal, MetadataRecord, ids["rec_match"])
         rec_manual = await self._get(SessionLocal, MetadataRecord, ids["rec_manual"])
         rec_p2 = await self._get(SessionLocal, MetadataRecord, ids["rec_p2"])
         assert rec_match.interesting and "keyword=invoice" in rec_match.interesting_reason
         assert rec_p2.interesting and "keyword=invoice" in rec_p2.interesting_reason
-        # Manual mark preserved (reason not overwritten).
+        # Already-interesting (manual) record now ALSO gets a match row, reason preserved.
         assert rec_manual.interesting and rec_manual.interesting_reason == "manual"
+        assert await self._match_count(SessionLocal, ids["rec_manual"]) == 1
 
         task = await self._get(SessionLocal, Task, tid)
         assert task.status == "completed"
-        assert task.files_processed == 2
+        assert task.files_processed == 3
 
     async def test_project_scope_limits_backfill(self, test_engine):
         SessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
         ids = await self._seed(SessionLocal)
         tid = await self._new_task(SessionLocal, ids["p1"])
 
-        scanned, flagged = await backfill_scan(SessionLocal, tid, [ids["gfilter"]], ids["p1"])
-
-        # Only p1's single False row is in scope.
-        assert flagged == 1
+        # Scope p1: only p1's two records (rec_match, rec_manual) are scanned/matched.
+        scanned, new_matches = await backfill_scan(SessionLocal, tid, [ids["gfilter"]], ids["p1"])
+        assert scanned == 2
+        assert new_matches == 2
         rec_p2 = await self._get(SessionLocal, MetadataRecord, ids["rec_p2"])
         assert rec_p2.interesting is False  # p2 untouched
+        assert await self._match_count(SessionLocal, ids["rec_p2"]) == 0
 
     async def test_idempotent_rerun(self, test_engine):
         SessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
         ids = await self._seed(SessionLocal)
         tid1 = await self._new_task(SessionLocal, None)
-        await backfill_scan(SessionLocal, tid1, [ids["gfilter"]], None)
+        _, new1 = await backfill_scan(SessionLocal, tid1, [ids["gfilter"]], None)
+        assert new1 == 3
 
         tid2 = await self._new_task(SessionLocal, None)
-        scanned2, flagged2 = await backfill_scan(SessionLocal, tid2, [ids["gfilter"]], None)
-        # Nothing left to flag (already-interesting rows are excluded).
-        assert flagged2 == 0
-        assert scanned2 == 0
+        scanned2, new2 = await backfill_scan(SessionLocal, tid2, [ids["gfilter"]], None)
+        # Re-run scans all rows again but inserts no duplicate match rows (ON CONFLICT).
+        assert scanned2 == 3
+        assert new2 == 0

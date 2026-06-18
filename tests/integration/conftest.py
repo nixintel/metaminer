@@ -24,6 +24,8 @@ import app.models.metadata_record
 import app.models.log_entry
 import app.models.scheduled_crawl
 import app.models.filter_criteria
+import app.models.filter_group
+import app.models.metadata_filter_match
 from app.database import Base
 
 TEST_DATABASE_URL = os.getenv(

@@ -43,8 +43,10 @@ async def backfill_scan(SessionLocal, task_id: int, filter_ids: list[int] | None
     and make the run resumable.
     """
     from sqlalchemy import select
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
     from app.models.task import Task
     from app.models.metadata_record import MetadataRecord
+    from app.models.metadata_filter_match import MetadataFilterMatch
     from app.models.file_submission import FileSubmission
     from app.models.filter_criteria import FilterCriteria
     from app.services.filter_service import compile_filters, FilterSet
@@ -83,16 +85,17 @@ async def backfill_scan(SessionLocal, task_id: int, filter_ids: list[int] | None
         return _cache[pid]
 
     scanned = 0
-    flagged = 0
+    new_matches = 0
     last_id = 0
     capped = False
 
     while True:
         async with SessionLocal() as db:
+            # Scan ALL rows (not just interesting=false) so new matches are recorded even
+            # on already-interesting records. Idempotent via ON CONFLICT DO NOTHING.
             q = (
                 select(MetadataRecord, FileSubmission.source_url, FileSubmission.project_id)
                 .join(FileSubmission, MetadataRecord.submission_id == FileSubmission.id)
-                .where(MetadataRecord.interesting.is_(False))
                 .where(MetadataRecord.id > last_id)
             )
             if project_id is not None:
@@ -102,17 +105,32 @@ async def backfill_scan(SessionLocal, task_id: int, filter_ids: list[int] | None
             if not rows:
                 break
 
+            match_rows = []
             for record, source_url, rec_project_id in rows:
                 fs = _filterset_for(rec_project_id)
                 if fs:
                     # Only parse exif JSON when a field filter needs it.
                     exif = _parse(record.raw_json) if _has_field_filter(fs) else None
-                    matched, reason = fs.evaluate(source_url, record.raw_json, exif)
-                    if matched:
-                        record.interesting = True
-                        record.interesting_reason = reason
-                        flagged += 1
+                    ids, first_reason = fs.evaluate_all(source_url, record.raw_json, exif)
+                    if ids:
+                        for fid in ids:
+                            match_rows.append({"metadata_id": record.id, "filter_id": fid})
+                        if not record.interesting:
+                            record.interesting = True
+                        if record.interesting_reason is None:
+                            record.interesting_reason = first_reason
                 scanned += 1
+
+            if match_rows:
+                # RETURNING after on_conflict_do_nothing yields only the rows actually
+                # inserted, so new_matches stays accurate (and is 0 on idempotent re-runs).
+                res = await db.execute(
+                    pg_insert(MetadataFilterMatch)
+                    .values(match_rows)
+                    .on_conflict_do_nothing()
+                    .returning(MetadataFilterMatch.metadata_id)
+                )
+                new_matches += len(res.fetchall())
             last_id = rows[-1][0].id
             await db.commit()
 
@@ -120,19 +138,19 @@ async def backfill_scan(SessionLocal, task_id: int, filter_ids: list[int] | None
             t = await db.get(Task, task_id)
             if t:
                 t.files_found = scanned
-                t.files_processed = flagged
+                t.files_processed = new_matches
                 await db.commit()
         logger.info(
-            "Backfill progress | task_id=%d | scanned=%d | flagged=%d | last_id=%d",
-            task_id, scanned, flagged, last_id,
+            "Backfill progress | task_id=%d | scanned=%d | new_matches=%d | last_id=%d",
+            task_id, scanned, new_matches, last_id,
         )
 
         if scanned >= _MAX_ROWS:
             capped = True
             logger.warning(
-                "Backfill cap reached (%d rows) | task_id=%d | scanned=%d | flagged=%d | "
+                "Backfill cap reached (%d rows) | task_id=%d | scanned=%d | new_matches=%d | "
                 "remaining rows NOT processed — re-run to continue",
-                _MAX_ROWS, task_id, scanned, flagged,
+                _MAX_ROWS, task_id, scanned, new_matches,
             )
             break
 
@@ -141,16 +159,16 @@ async def backfill_scan(SessionLocal, task_id: int, filter_ids: list[int] | None
         if t:
             t.status = "completed"
             t.files_found = scanned
-            t.files_processed = flagged
+            t.files_processed = new_matches
             t.completed_at = datetime.now(timezone.utc)
             if capped:
                 t.error_message = f"Stopped at safety cap of {_MAX_ROWS} rows; re-run to continue."
             await db.commit()
     logger.info(
-        "Filter backfill complete | task_id=%d | scanned=%d | flagged=%d | capped=%s",
-        task_id, scanned, flagged, capped,
+        "Filter backfill complete | task_id=%d | scanned=%d | new_matches=%d | capped=%s",
+        task_id, scanned, new_matches, capped,
     )
-    return (scanned, flagged)
+    return (scanned, new_matches)
 
 
 @celery_app.task(bind=True, name="metaminer.filter_backfill", queue="manual",

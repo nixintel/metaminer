@@ -78,17 +78,20 @@ class FilterCondition(BaseModel):
     value: str
 
 
-class FilterGroup(BaseModel):
+# NOTE: this is the ad-hoc query-builder tree node (AND/OR of conditions), unrelated to
+# the persisted FilterGroup entity (app/models/filter_group.py). Named QueryGroup to avoid
+# confusion with the auto-tagging filter groups.
+class QueryGroup(BaseModel):
     operator: Literal["AND", "OR"]
-    conditions: list[Union["FilterGroup", FilterCondition]]
+    conditions: list[Union["QueryGroup", FilterCondition]]
 
 
-FilterGroup.model_rebuild()
+QueryGroup.model_rebuild()
 
 
 class QueryRequest(BaseModel):
     operator: Literal["AND", "OR"] = "AND"
-    conditions: list[Union[FilterGroup, FilterCondition]] = []
+    conditions: list[Union[QueryGroup, FilterCondition]] = []
     sort_by: str = "extracted_at"
     order: Literal["asc", "desc"] = "desc"
     limit: int = Field(50, ge=1, le=500)

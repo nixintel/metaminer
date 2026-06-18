@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.models.file_submission import FileSubmission
 from app.models.metadata_record import MetadataRecord
+from app.models.metadata_filter_match import MetadataFilterMatch
 from app.services.exiftool import extract_metadata, get_exiftool_version, ExiftoolError
 from app.services.pdf_service import is_pdf, extract_pdf_both_variants
 from app.services.file_service import retain_file
@@ -58,17 +59,27 @@ def _make_record(submission_id: int, meta: dict, pdf_variant: str | None, versio
 
 
 def _apply_filters(rec: MetadataRecord, meta: dict, source_url: str | None, active_filters) -> None:
-    """Auto-tag a freshly built record if any active filter matches (additive: never unflags)."""
-    if not active_filters or rec.interesting:
+    """Auto-tag a freshly built record, recording EVERY matching single filter.
+
+    Records a metadata_filter_matches row per match (via the cascade relationship, so they
+    flush with the record). Sets interesting=True if any matched; sets interesting_reason
+    (the first match's descriptor) only when not already set — preserving a "manual" mark.
+    """
+    if not active_filters:
         return
-    matched, reason = active_filters.evaluate(source_url, rec.raw_json, meta)
-    if matched:
+    matched_ids, first_reason = active_filters.evaluate_all(source_url, rec.raw_json, meta)
+    if not matched_ids:
+        return
+    for fid in matched_ids:
+        rec.filter_matches.append(MetadataFilterMatch(filter_id=fid))
+    if not rec.interesting:
         rec.interesting = True
-        rec.interesting_reason = reason
-        logger.info(
-            "Auto-tagged interesting | submission_id=%s | variant=%s | reason=%s",
-            rec.submission_id, rec.pdf_variant, reason,
-        )
+    if rec.interesting_reason is None:
+        rec.interesting_reason = first_reason
+    logger.info(
+        "Auto-tagged interesting | submission_id=%s | variant=%s | matched_filters=%d | reason=%s",
+        rec.submission_id, rec.pdf_variant, len(matched_ids), first_reason,
+    )
 
 
 async def _is_duplicate(db: AsyncSession, project_id: int, file_hash: str) -> bool:

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Filter Groups – Metaminer{% endblock %}
+
+{% block page_description %}
+<p class="page-desc">Filter groups bundle single filters with <strong>OR</strong> logic to match patterns of behaviour: a group matches a metadata entry if <em>any</em> of its member filters match. On a record, a matched filter that belongs to a group is shown as the group. Groups apply to a single project or globally. Use "Apply to existing" to check already-ingested data.</p>
+{% endblock %}
+
+{% block content %}
+{% set project_names = {} %}
+{% for p in projects %}{% set _ = project_names.update({p.id: p.name}) %}{% endfor %}
+
+<div class="page-header">
+  <h2>Filter Groups</h2>
+  <a href="{{ url_for('filter_group_new') }}" role="button">+ New Group</a>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Members</th>
+      <th>Scope</th>
+      <th>Active</th>
+      <th class="actions">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for g in groups %}
+    <tr>
+      <td>{{ g.id }}</td>
+      <td><strong>{{ g.name }}</strong></td>
+      <td class="cell-truncate" title="{{ g.filters | map(attribute='name') | join(', ') }}" style="max-width:280px; font-size:0.85rem;">
+        {{ g.filters | length }} — {{ g.filters | map(attribute='name') | join(', ') or '—' }}
+      </td>
+      <td>{{ project_names.get(g.project_id, g.project_id) if g.project_id else 'Global' }}</td>
+      <td>
+        <form action="{{ url_for('filter_group_toggle', gid=g.id) }}" method="POST" style="display:inline;">
+          <button type="submit" class="outline btn-sm {{ 'secondary' if not g.is_active else '' }}"
+                  title="{{ 'Deactivate' if g.is_active else 'Activate' }}">
+            {{ 'Active' if g.is_active else 'Paused' }}
+          </button>
+        </form>
+      </td>
+      <td class="actions">
+        <a href="{{ url_for('filter_group_edit', gid=g.id) }}" role="button" class="outline btn-sm">Edit</a>
+        <form action="{{ url_for('filter_group_backfill', gid=g.id) }}" method="POST" style="display:inline;">
+          <input type="hidden" name="project_id" value="{{ g.project_id if g.project_id else '' }}">
+          <button type="submit" class="outline btn-sm"
+                  hx-confirm="Apply this group's filters to existing {{ 'project' if g.project_id else 'whole-database' }} metadata now?">
+            Apply to existing
+          </button>
+        </form>
+        <form action="{{ url_for('filter_group_delete', gid=g.id) }}" method="POST" style="display:inline;">
+          <button type="submit" class="outline secondary btn-sm" hx-confirm="Delete this group? (Member filters are not deleted.)">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">No filter groups yet. <a href="{{ url_for('filter_group_new') }}">Create one</a>.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

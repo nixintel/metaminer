@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if group else 'New' }} Filter Group – Metaminer{% endblock %}
+
+{% block content %}
+{% set project_names = {} %}
+{% for p in projects %}{% set _ = project_names.update({p.id: p.name}) %}{% endfor %}
+{% set member_ids = group.filters | map(attribute='id') | list if group else [] %}
+
+<div class="page-header">
+  <h2>{{ 'Edit Filter Group' if group else 'New Filter Group' }}</h2>
+  <a href="{{ url_for('filter_groups_list') }}" role="button" class="outline secondary btn-sm">← Back</a>
+</div>
+
+<form method="POST" action="{{ action }}" style="max-width: 640px;">
+  <label for="name">Name</label>
+  <input type="text" id="name" name="name" required
+         value="{{ group.name if group else '' }}" placeholder="e.g. Document leak indicators">
+
+  <label for="project_id">Scope</label>
+  <select id="project_id" name="project_id" {{ 'disabled' if group else '' }}>
+    <option value="">All projects (global)</option>
+    {% for p in projects %}
+    <option value="{{ p.id }}" {{ 'selected' if group and group.project_id == p.id else '' }}>{{ p.name }}</option>
+    {% endfor %}
+  </select>
+  {% if group %}<small class="muted">Scope can't be changed after creation.</small>{% endif %}
+  <small class="muted">A project group may contain that project's filters + global filters; a global group may contain only global filters.</small>
+
+  <label for="filter_ids" style="margin-top:0.75rem;">Member filters (OR — a record matches the group if any of these match)</label>
+  <select id="filter_ids" name="filter_ids" multiple size="10" style="width:100%;">
+    {% for f in filters %}
+    <option value="{{ f.id }}" {{ 'selected' if f.id in member_ids else '' }}>
+      {{ f.name }} — {{ f.filter_type }} [{{ project_names.get(f.project_id, 'Project ' ~ f.project_id) if f.project_id else 'Global' }}]
+    </option>
+    {% endfor %}
+  </select>
+  <small class="muted">Hold Ctrl/Cmd to select multiple. Filters that violate the group's scope are rejected on save.</small>
+
+  {% if group %}
+  <label style="display:flex; gap:0.5rem; align-items:center; margin-top:0.75rem;">
+    <input type="checkbox" name="is_active" {{ 'checked' if group.is_active else '' }} style="width:auto; margin:0;">
+    Active
+  </label>
+  {% else %}
+  <fieldset style="margin-top:1rem;">
+    <legend>Check existing records</legend>
+    <label style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="radio" name="check_existing" value="none" checked style="width:auto; margin:0;"> No — only tag newly ingested metadata
+    </label>
+    <label style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="radio" name="check_existing" value="project" style="width:auto; margin:0;"> Yes — scan the selected project's existing metadata
+    </label>
+    <label style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="radio" name="check_existing" value="all" style="width:auto; margin:0;"> Yes — scan the whole database
+    </label>
+    <small class="muted">Backfill runs as a background task; watch progress on the Tasks page.</small>
+  </fieldset>
+  {% endif %}
+
+  <button type="submit" style="margin-top: 1rem;">{{ 'Save Changes' if group else 'Create Group' }}</button>
+</form>
+{% endblock %}

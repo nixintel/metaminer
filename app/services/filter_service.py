@@ -123,13 +123,17 @@ class FilterSet:
     def __len__(self) -> int:
         return len(self.filters)
 
+    def _prepare(self, source_url, raw_json_str: str):
+        """Build the combined search text once. exif_flat is built lazily (only when an
+        exif_field filter needs it) by the caller via _need_exif()."""
+        combined = f"{source_url or ''}\n{raw_json_str or ''}"
+        return combined, combined.lower()
+
     def evaluate(self, source_url, raw_json_str: str, exif: dict | None) -> tuple[bool, str | None]:
         """Return (matched, reason) for the first matching filter, else (False, None)."""
         if not self.filters:
             return (False, None)
-        combined = f"{source_url or ''}\n{raw_json_str or ''}"
-        combined_lower = combined.lower()
-        # Lazily flatten exif only if a field filter is present.
+        combined, combined_lower = self._prepare(source_url, raw_json_str)
         exif_flat = None
         for f in self.filters:
             if f.filter_type == "exif_field" and exif_flat is None:
@@ -137,6 +141,28 @@ class FilterSet:
             if f.matches(combined, combined_lower, exif_flat or {}):
                 return (True, f.reason)
         return (False, None)
+
+    def evaluate_all(self, source_url, raw_json_str: str, exif: dict | None) -> tuple[list[int], str | None]:
+        """Return (matched_filter_ids, first_reason) — ALL matches, no short-circuit.
+
+        Iterates filters in order; matched_filter_ids preserves that order and
+        first_reason is the first matching filter's descriptor (the legacy single-match
+        reason, kept for back-compat display).
+        """
+        if not self.filters:
+            return ([], None)
+        combined, combined_lower = self._prepare(source_url, raw_json_str)
+        exif_flat = None
+        matched_ids: list[int] = []
+        first_reason: str | None = None
+        for f in self.filters:
+            if f.filter_type == "exif_field" and exif_flat is None:
+                exif_flat = {k.lower(): v for k, v in _flatten_exif(exif or {}).items()}
+            if f.matches(combined, combined_lower, exif_flat or {}):
+                matched_ids.append(f.id)
+                if first_reason is None:
+                    first_reason = f.reason
+        return (matched_ids, first_reason)
 
 
 def compile_filters(rows) -> FilterSet:

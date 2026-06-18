@@ -141,6 +141,28 @@ def backfill_filter(fid, project_id=None):
     return _post(f"/filters/{fid}/backfill", json={"project_id": project_id})
 
 
+# ── Filter groups (OR-bundles of single filters) ─────────────────────────────────
+
+def list_filter_groups(project_id=None):
+    return _get("/filter-groups", project_id=project_id)
+
+def get_filter_group(gid):
+    return _get(f"/filter-groups/{gid}")
+
+def create_filter_group(**kwargs):
+    return _post("/filter-groups", json=kwargs)
+
+def update_filter_group(gid, **kwargs):
+    # Keep filter_ids even when [] (means "clear membership"); only drop None values.
+    return _patch(f"/filter-groups/{gid}", json={k: v for k, v in kwargs.items() if v is not None})
+
+def delete_filter_group(gid):
+    return _delete(f"/filter-groups/{gid}")
+
+def backfill_filter_group(gid, project_id=None):
+    return _post(f"/filter-groups/{gid}/backfill", json={"project_id": project_id})
+
+
 # ── Logs ──────────────────────────────────────────────────────────────────────
 
 def get_logs(level=None, task_id=None, submission_id=None,

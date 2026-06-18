@@ -45,6 +45,13 @@ def _filters():
         return []
 
 
+def _filter_groups():
+    try:
+        return api_client.list_filter_groups()
+    except Exception:
+        return []
+
+
 def _save_upload(file) -> str:
     """Save an uploaded FileStorage object to the shared temp dir. Returns the saved path."""
     os.makedirs(TEMP_DIR, exist_ok=True)
@@ -511,7 +518,7 @@ def metadata_search():
 
     return render_template(
         "metadata/search.html",
-        mode=mode, projects=projects, records=records, filters=_filters(),
+        mode=mode, projects=projects, records=records, filters=_filters(), groups=_filter_groups(),
         searched=searched, export_href=export_href, pager=pager,
         page_size=page_size_raw, page_size_options=PAGE_SIZE_OPTIONS,
         qb_fields=qb_fields, qb_ops=qb_ops, qb_values=qb_values,
@@ -918,6 +925,114 @@ def filter_backfill(fid):
     except Exception as e:
         flash(_api_error(e, "backfill filter"), "error")
     return redirect(url_for("filters_list"))
+
+
+# ── Filter groups (OR-bundles of single filters) ─────────────────────────────────
+
+def _form_filter_ids():
+    """Parse the multi-select 'filter_ids' field into a list of ints."""
+    return [int(x) for x in request.form.getlist("filter_ids") if x.strip()]
+
+
+@app.get("/filter-groups")
+def filter_groups_list():
+    groups = []
+    try:
+        groups = api_client.list_filter_groups()
+    except Exception as e:
+        flash(_api_error(e, "load filter groups"), "error")
+    return render_template("filter_groups/list.html", groups=groups, projects=_projects())
+
+
+@app.get("/filter-groups/new")
+def filter_group_new():
+    return render_template("filter_groups/form.html", group=None, projects=_projects(),
+                           filters=_filters(), action=url_for("filter_group_create"))
+
+
+@app.post("/filter-groups/new")
+def filter_group_create():
+    try:
+        project_id = _form_project_id()
+        created = api_client.create_filter_group(
+            name=request.form.get("name", "").strip(),
+            project_id=project_id,
+            is_active=True,
+            filter_ids=_form_filter_ids(),
+        )
+        flash("Filter group created.", "success")
+        check = request.form.get("check_existing", "none")
+        if check in ("project", "all"):
+            scope = project_id if check == "project" else None
+            api_client.backfill_filter_group(created["id"], project_id=scope)
+            flash(
+                "Backfill started — check the Tasks page for progress "
+                f"({'this project' if check == 'project' else 'whole database'}).",
+                "info",
+            )
+    except Exception as e:
+        flash(_api_error(e, "create filter group"), "error")
+        return redirect(url_for("filter_group_new"))
+    return redirect(url_for("filter_groups_list"))
+
+
+@app.get("/filter-groups/<int:gid>/edit")
+def filter_group_edit(gid):
+    try:
+        group = api_client.get_filter_group(gid)
+    except Exception as e:
+        flash(_api_error(e, "load filter group"), "error")
+        return redirect(url_for("filter_groups_list"))
+    return render_template("filter_groups/form.html", group=group, projects=_projects(),
+                           filters=_filters(), action=url_for("filter_group_update", gid=gid))
+
+
+@app.post("/filter-groups/<int:gid>/edit")
+def filter_group_update(gid):
+    try:
+        api_client.update_filter_group(
+            gid,
+            name=request.form.get("name", "").strip(),
+            is_active=bool(request.form.get("is_active")),
+            filter_ids=_form_filter_ids(),  # [] clears membership
+        )
+        flash("Filter group updated.", "success")
+    except Exception as e:
+        flash(_api_error(e, "update filter group"), "error")
+        return redirect(url_for("filter_group_edit", gid=gid))
+    return redirect(url_for("filter_groups_list"))
+
+
+@app.post("/filter-groups/<int:gid>/delete")
+def filter_group_delete(gid):
+    try:
+        api_client.delete_filter_group(gid)
+        flash("Filter group deleted.", "success")
+    except Exception as e:
+        flash(_api_error(e, "delete filter group"), "error")
+    return redirect(url_for("filter_groups_list"))
+
+
+@app.post("/filter-groups/<int:gid>/toggle")
+def filter_group_toggle(gid):
+    try:
+        g = api_client.get_filter_group(gid)
+        api_client.update_filter_group(gid, is_active=not g["is_active"])
+    except Exception as e:
+        flash(_api_error(e, "toggle filter group"), "error")
+    return redirect(url_for("filter_groups_list"))
+
+
+@app.post("/filter-groups/<int:gid>/backfill")
+def filter_group_backfill(gid):
+    try:
+        raw = (request.form.get("project_id") or "").strip()
+        scope = int(raw) if raw else None
+        api_client.backfill_filter_group(gid, project_id=scope)
+        flash("Backfill started — check the Tasks page for progress.", "info")
+    except Exception as e:
+        flash(_api_error(e, "backfill filter group"), "error")
+    return redirect(url_for("filter_groups_list"))
 
 
 # ── Telegram ──────────────────────────────────────────────────────────────────

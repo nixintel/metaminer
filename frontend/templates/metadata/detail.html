@@ -8,8 +8,24 @@
   </h2>
   <a href="{{ url_for('metadata_search') }}" role="button" class="outline secondary btn-sm">← Back</a>
 </div>
-{% if record.interesting and record.interesting_reason %}
-<p class="muted" style="margin-top:-0.5rem;">★ Flagged interesting — <strong>{{ record.interesting_reason }}</strong></p>
+{% if record.interesting %}
+<p class="muted" style="margin-top:-0.5rem;">
+  ★ Flagged interesting —
+  {% set parts = [] %}
+  {% if record.matched_manual %}{% set _ = parts.append('manual') %}{% endif %}
+  {% if record.matched_groups is defined or record.matched_filters is defined %}
+    {% for g in record.matched_groups %}<strong title="filter group">{{ g.name }}</strong> <span class="badge badge-info">group</span>{% if not loop.last or record.matched_filters %}, {% endif %}{% endfor %}
+    {% for f in record.matched_filters %}<strong title="single filter">{{ f.name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}
+    {% if record.matched_manual and (record.matched_groups or record.matched_filters) %} · {% endif %}
+    {% if record.matched_manual %}<em>manually marked</em>{% endif %}
+    {% if not record.matched_groups and not record.matched_filters and not record.matched_manual %}
+      <strong>{{ record.interesting_reason or 'flagged' }}</strong>
+    {% endif %}
+  {% else %}
+    {# fallback for older API responses without the matches block #}
+    <strong>{{ record.interesting_reason }}</strong>
+  {% endif %}
+</p>
 {% endif %}
 
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">

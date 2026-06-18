@@ -64,8 +64,14 @@
         </li>
         <li>
           <a href="{{ url_for('filters_list') }}"
-             class="{{ 'active' if 'filter' in (request.endpoint or '') else '' }}">
+             class="{{ 'active' if 'filter' in (request.endpoint or '') and 'filter_group' not in (request.endpoint or '') else '' }}">
             Filters
+          </a>
+        </li>
+        <li>
+          <a href="{{ url_for('filter_groups_list') }}"
+             class="{{ 'active' if 'filter_group' in (request.endpoint or '') else '' }}">
+            Filter Groups
           </a>
         </li>
         <li>

@@ -67,6 +67,15 @@
       </select>
     </div>
     <div>
+      <label style="white-space:nowrap;">Matched group</label>
+      <select name="matched_group_id" style="min-width: 150px;">
+        <option value="">Any group</option>
+        {% for g in groups %}
+        <option value="{{ g.id }}" {{ 'selected' if request.args.get('matched_group_id') == g.id|string else '' }}>{{ g.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
       <label style="white-space:nowrap;">
         <input type="checkbox" name="interesting" value="true" {{ 'checked' if request.args.get('interesting') else '' }}>
         ★ Interesting only
@@ -173,6 +182,15 @@
         <option value="">Any filter</option>
         {% for f in filters %}
         <option value="{{ f.id }}" {{ 'selected' if request.args.get('matched_filter_id') == f.id|string else '' }}>{{ f.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Matched group</label>
+      <select name="matched_group_id">
+        <option value="">Any group</option>
+        {% for g in groups %}
+        <option value="{{ g.id }}" {{ 'selected' if request.args.get('matched_group_id') == g.id|string else '' }}>{{ g.name }}</option>
         {% endfor %}
       </select>
     </div>

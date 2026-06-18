@@ -143,3 +143,36 @@ class TestShortCircuit:
     def test_empty_filterset_no_match(self):
         matched, reason = _fs().evaluate("http://a", "{}", None)
         assert not matched and reason is None
+
+
+# ── evaluate_all (no short-circuit) ────────────────────────────────────────────
+
+class TestEvaluateAll:
+    def test_returns_all_matching_ids_in_order(self):
+        raw = json.dumps({"Author": "invoice secret"})
+        fs = _fs(
+            _f(1, "keyword", "invoice", name="A"),
+            _f(2, "keyword", "zzz", name="B"),       # no match
+            _f(3, "keyword", "secret", name="C"),
+            _f(4, "keyword", "invoice", name="D"),
+        )
+        ids, first_reason = fs.evaluate_all(None, raw, None)
+        assert ids == [1, 3, 4]
+        assert "filter #1" in first_reason and "A" in first_reason
+
+    def test_no_matches(self):
+        ids, first_reason = _fs(_f(1, "keyword", "zzz")).evaluate_all("http://a", "{}", None)
+        assert ids == [] and first_reason is None
+
+    def test_empty_filterset(self):
+        ids, first_reason = _fs().evaluate_all("http://a", "{}", None)
+        assert ids == [] and first_reason is None
+
+    def test_exif_field_lazy_flatten_still_works(self):
+        exif = {"GPS": {"GPSLatitude": "51.5"}}
+        fs = _fs(
+            _f(1, "keyword", "nomatch"),
+            _f(2, "exif_field", "GPS:GPSLatitude", name="geo"),
+        )
+        ids, _ = fs.evaluate_all(None, json.dumps(exif), exif)
+        assert ids == [2]

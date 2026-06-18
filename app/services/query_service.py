@@ -55,8 +55,53 @@ def _serialize_row(record: MetadataRecord, submission: FileSubmission, project: 
     return data
 
 
+async def get_record_matches(db: AsyncSession, metadata_id: int, interesting_reason: str | None) -> dict:
+    """Derive the displayed matches for one record, applying the "only the group(s)" rule.
+
+    Returns {"groups": [{id,name}], "filters": [{id,name}], "manual": bool} where:
+      - groups   = groups with >=1 member that matched this record;
+      - filters  = matched filters that belong to NO group (shown standalone);
+      - manual   = the record was manually flagged.
+    Not scoped by is_active or project (a recorded match is historical fact). Detail-only
+    (do not call per-row on list pages).
+    """
+    from app.models.metadata_filter_match import MetadataFilterMatch
+    from app.models.filter_criteria import FilterCriteria
+    from app.models.filter_group import FilterGroup, filter_group_members
+
+    # Groups with at least one matched member of this record.
+    group_rows = (await db.execute(
+        select(FilterGroup.id, FilterGroup.name)
+        .distinct()
+        .join(filter_group_members, filter_group_members.c.group_id == FilterGroup.id)
+        .join(MetadataFilterMatch, MetadataFilterMatch.filter_id == filter_group_members.c.filter_id)
+        .where(MetadataFilterMatch.metadata_id == metadata_id)
+        .order_by(FilterGroup.name)
+    )).all()
+
+    # Matched filters that are members of NO group → shown standalone.
+    filter_rows = (await db.execute(
+        select(FilterCriteria.id, FilterCriteria.name)
+        .join(MetadataFilterMatch, MetadataFilterMatch.filter_id == FilterCriteria.id)
+        .where(MetadataFilterMatch.metadata_id == metadata_id)
+        .where(~select(filter_group_members.c.group_id)
+               .where(filter_group_members.c.filter_id == FilterCriteria.id)
+               .exists())
+        .order_by(FilterCriteria.name)
+    )).all()
+
+    return {
+        "groups": [{"id": gid, "name": name} for gid, name in group_rows],
+        "filters": [{"id": fid, "name": name} for fid, name in filter_rows],
+        "manual": interesting_reason == "manual",
+    }
+
+
 async def get_metadata_by_id(db: AsyncSession, metadata_id: int) -> dict | None:
-    """Fetch a single metadata record by its primary key, or None if it doesn't exist."""
+    """Fetch a single metadata record by its primary key, or None if it doesn't exist.
+
+    Enriches the detail payload with the record's matched groups/filters (the metadata
+    list/search path intentionally does NOT do this — it would N+1 across large pages)."""
     q = (
         select(MetadataRecord, FileSubmission, Project)
         .join(FileSubmission, MetadataRecord.submission_id == FileSubmission.id)
@@ -64,7 +109,14 @@ async def get_metadata_by_id(db: AsyncSession, metadata_id: int) -> dict | None:
         .where(MetadataRecord.id == metadata_id)
     )
     row = (await db.execute(q)).first()
-    return _serialize_row(*row) if row is not None else None
+    if row is None:
+        return None
+    data = _serialize_row(*row)
+    matches = await get_record_matches(db, metadata_id, data.get("interesting_reason"))
+    data["matched_groups"] = matches["groups"]
+    data["matched_filters"] = matches["filters"]
+    data["matched_manual"] = matches["manual"]
+    return data
 
 
 async def set_metadata_interesting(db: AsyncSession, metadata_id: int, interesting: bool) -> dict | None:
@@ -130,11 +182,35 @@ async def query_metadata(db: AsyncSession, params: dict) -> list[dict]:
         filters.append(MetadataRecord.interesting.is_(True))
 
     if params.get("matched_filter_id"):
-        # Records auto-tagged by a specific filter. interesting_reason is the frozen
-        # descriptor "<name> (filter #<id>): <type>=<value>"; the " (filter #<id>):" token
-        # (leading space, trailing colon) uniquely identifies the filter id.
+        # Records that matched a specific single filter (any match, not just the
+        # short-circuit winner) — EXISTS against the metadata_filter_matches join table.
+        from sqlalchemy import exists
+        from app.models.metadata_filter_match import MetadataFilterMatch
         fid = int(params["matched_filter_id"])
-        filters.append(MetadataRecord.interesting_reason.ilike(f"% (filter #{fid}):%"))
+        filters.append(
+            exists().where(
+                and_(
+                    MetadataFilterMatch.metadata_id == MetadataRecord.id,
+                    MetadataFilterMatch.filter_id == fid,
+                )
+            )
+        )
+
+    if params.get("matched_group_id"):
+        # Records that matched ANY member filter of the given group.
+        from sqlalchemy import exists
+        from app.models.metadata_filter_match import MetadataFilterMatch
+        from app.models.filter_group import filter_group_members
+        gid = int(params["matched_group_id"])
+        filters.append(
+            exists().where(
+                and_(
+                    MetadataFilterMatch.metadata_id == MetadataRecord.id,
+                    MetadataFilterMatch.filter_id == filter_group_members.c.filter_id,
+                    filter_group_members.c.group_id == gid,
+                )
+            )
+        )
 
     if params.get("source_url__contains"):
         filters.append(FileSubmission.source_url.ilike(f"%{params['source_url__contains']}%"))

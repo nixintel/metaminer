@@ -49,6 +49,15 @@ class MetadataRecord(Base):
     submission: Mapped["FileSubmission"] = relationship(
         "FileSubmission", back_populates="metadata_records"
     )
+    # Which single filters matched this record (auto-tagging). cascade lets us append
+    # match children before the record has an id — they flush atomically with the parent.
+    # passive_deletes defers to the DB CASCADE; selectin keeps access async-safe.
+    filter_matches: Mapped[list["MetadataFilterMatch"]] = relationship(
+        "MetadataFilterMatch",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        passive_deletes=True,
+    )
 
     __table_args__ = (
         Index("ix_metadata_records_submission_id", "submission_id"),

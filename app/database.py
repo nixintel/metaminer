@@ -41,6 +41,27 @@ _MIGRATIONS = [
     # nullable tasks.project_id so a whole-DB filter backfill (no single project) is trackable.
     "ALTER TABLE metadata_records ADD COLUMN IF NOT EXISTS interesting_reason TEXT",
     "ALTER TABLE tasks ALTER COLUMN project_id DROP NOT NULL",
+    # Added in v0.8: filter groups. The filter_groups / filter_group_members /
+    # metadata_filter_matches tables come from create_all (models imported in main.py).
+    # Backfill the new match table from the legacy single interesting_reason descriptor so
+    # existing auto-tagged records keep their (single) match. FK-safe (skips deleted filters)
+    # and idempotent (ON CONFLICT). Raw string so the regex backslashes reach Postgres.
+    r"""
+    INSERT INTO metadata_filter_matches (metadata_id, filter_id, matched_at)
+    SELECT mr.id,
+           (regexp_match(mr.interesting_reason, '\(filter #(\d+)\):'))[1]::int,
+           now()
+    FROM metadata_records mr
+    WHERE mr.interesting = true
+      AND mr.interesting_reason IS NOT NULL
+      AND mr.interesting_reason <> 'manual'
+      AND mr.interesting_reason ~ '\(filter #\d+\):'
+      AND EXISTS (
+            SELECT 1 FROM filters f
+            WHERE f.id = (regexp_match(mr.interesting_reason, '\(filter #(\d+)\):'))[1]::int
+          )
+    ON CONFLICT (metadata_id, filter_id) DO NOTHING
+    """,
 ]
 
 
