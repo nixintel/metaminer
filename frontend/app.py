@@ -54,7 +54,7 @@ def _save_upload(file) -> str:
 # of the promoted metadata fields follow. Flattened exiftool columns are appended
 # after these by _records_to_csv().
 CORE_CSV_FIELDS = [
-    "id", "project_name", "source_url",
+    "id", "project_name", "source_url", "interesting",
     "file_name", "file_type", "mime_type", "file_size",
     "author", "title", "creator_tool", "producer", "pdf_version",
     "create_date", "modify_date", "extracted_at", "submission_mode",
@@ -251,6 +251,24 @@ def projects_list():
     except Exception as e:
         flash(_api_error(e, "load projects"), "error")
     return render_template("projects/list.html", projects=projects)
+
+
+@app.get("/projects/<int:pid>")
+def project_detail(pid):
+    project = None
+    records = []
+    truncated = False
+    try:
+        project = api_client.get_project(pid)
+        # Reuse the metadata search with the Interesting-only filter scoped to this project.
+        records = api_client.search_metadata(project_id=pid, interesting="true", limit=500)
+        truncated = len(records) >= 500  # backend caps at 500; flag rather than silently drop
+    except Exception as e:
+        flash(_api_error(e, "load project"), "error")
+        if project is None:
+            return redirect(url_for("projects_list"))
+    return render_template("projects/detail.html", project=project,
+                           records=records, truncated=truncated)
 
 
 @app.get("/projects/new")
@@ -632,6 +650,25 @@ def metadata_detail(rid):
         flash(_api_error(e, "load record"), "error")
         return redirect(url_for("metadata_search"))
     return render_template("metadata/detail.html", record=record)
+
+
+@app.post("/metadata/<int:rid>/interesting")
+def metadata_interesting(rid):
+    """HTMX endpoint: set the Interesting flag to the target carried in hx-vals and
+    return the swapped-in toggle button. The target is absolute (not a server-side
+    flip), so concurrent toggles can't lose an update."""
+    target = request.form.get("interesting", "").lower() == "true"
+    try:
+        record = api_client.set_metadata_interesting(rid, target)
+        return render_template("metadata/_interesting_toggle.html", record=record)
+    except Exception as e:
+        # Surface the failure on the button itself (no silent swallow): re-render in
+        # the original state (the negation of the attempted target) with an error title.
+        return render_template(
+            "metadata/_interesting_toggle.html",
+            record={"id": rid, "interesting": not target},
+            toggle_error=_api_error(e, "update record"),
+        )
 
 
 # ── Logs ──────────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, Integer, ForeignKey, DateTime, Index
+from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, DateTime, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -38,6 +38,12 @@ class MetadataRecord(Base):
     producer: Mapped[str | None] = mapped_column(Text, nullable=True)
     pdf_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # User-toggled "Interesting" flag (manual triage). A future phase will let
+    # configurable conditions set this automatically; same column, no schema churn.
+    interesting: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
     submission: Mapped["FileSubmission"] = relationship(
         "FileSubmission", back_populates="metadata_records"
     )
@@ -46,4 +52,11 @@ class MetadataRecord(Base):
         Index("ix_metadata_records_submission_id", "submission_id"),
         Index("ix_metadata_records_extracted_at", "extracted_at"),
         Index("ix_metadata_records_file_type", "file_type"),
+        # Partial index: only the (minority) interesting rows — exactly what the
+        # "Interesting only" filter scans. Keeps the index tiny on a low-cardinality bool.
+        Index(
+            "ix_metadata_records_interesting",
+            "interesting",
+            postgresql_where=text("interesting = true"),
+        ),
     )

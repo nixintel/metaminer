@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name if project else 'Project' }} – Metaminer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>{{ project.name if project else 'Project' }} <span style="color:var(--pico-muted-color); font-weight:normal;">· Interesting</span></h2>
+  <a href="{{ url_for('projects_list') }}" role="button" class="outline secondary btn-sm">← Projects</a>
+</div>
+
+{% if project %}
+<p class="page-desc">{{ project.description or '' }}</p>
+
+<p style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+  <span>
+    <strong>{{ records | length }}</strong>
+    Interesting metadata entr{{ 'y' if records | length == 1 else 'ies' }} in this project
+  </span>
+  <a href="{{ url_for('metadata_search') }}?project_id={{ project.id }}"
+     role="button" class="outline secondary btn-sm">All metadata for this project →</a>
+</p>
+
+{% if truncated %}
+<p class="flash flash-warning">Showing the first 500 Interesting entries. Use the
+  <a href="{{ url_for('metadata_search') }}?project_id={{ project.id }}&interesting=true">full search</a>
+  (with paging) to see the rest.</p>
+{% endif %}
+
+{% if records %}
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>File</th>
+      <th>Type</th>
+      <th>Author</th>
+      <th>Extracted</th>
+      <th></th>
+      <th title="Interesting" style="text-align:center;">★</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td>{{ r.id }}</td>
+      <td class="cell-truncate" title="{{ r.file_name }}">{{ r.file_name or '—' }}</td>
+      <td>{{ r.file_type or '—' }}</td>
+      <td class="cell-truncate">{{ r.author or '—' }}</td>
+      <td style="white-space:nowrap; font-size:0.8rem;">{{ (r.extracted_at or '')[:10] }}</td>
+      <td><a href="{{ url_for('metadata_detail', rid=r.id) }}">View</a></td>
+      <td style="text-align:center;">{% with record=r %}{% include "metadata/_interesting_toggle.html" %}{% endwith %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No metadata entries marked Interesting in this project yet. Mark entries from the
+  <a href="{{ url_for('metadata_search') }}?project_id={{ project.id }}">metadata view</a>.</p>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -32,7 +32,7 @@ pytestmark = pytest.mark.integration
 from app.models.project import Project
 from app.models.file_submission import FileSubmission
 from app.models.metadata_record import MetadataRecord
-from app.services.query_service import query_metadata
+from app.services.query_service import query_metadata, set_metadata_interesting
 
 
 @pytest.fixture
@@ -73,6 +73,7 @@ async def populated_db(db):
         title="Annual Report 2024",
         creator_tool="Microsoft Word",
         producer="Acrobat Distiller",
+        interesting=True,
     )
     rec_xlsx = MetadataRecord(
         submission_id=sub_xlsx.id,
@@ -204,3 +205,44 @@ class TestQueryMetadataResultShape:
         )
         # raw_json should be a dict (parsed), not a string
         assert isinstance(results[0]["raw_json"], dict)
+
+    async def test_result_includes_interesting(self, db, populated_db):
+        results = await query_metadata(
+            db, {"project_id": populated_db["project"].id, "file_type": "PDF"}
+        )
+        assert "interesting" in results[0]
+
+
+class TestInteresting:
+    async def test_filter_interesting_only_returns_marked_record(self, db, populated_db):
+        # rec_pdf is marked interesting in the fixture; rec_xlsx is not.
+        results = await query_metadata(
+            db, {"project_id": populated_db["project"].id, "interesting": True}
+        )
+        assert len(results) == 1
+        assert results[0]["file_type"] == "PDF"
+        assert results[0]["interesting"] is True
+
+    async def test_default_is_false_for_unmarked_record(self, db, populated_db):
+        # rec_xlsx was inserted without interesting= → ORM/server default False.
+        results = await query_metadata(
+            db, {"project_id": populated_db["project"].id, "file_type": "XLSX"}
+        )
+        assert results[0]["interesting"] is False
+
+    async def test_set_interesting_true_then_false(self, db, populated_db):
+        rec_xlsx = populated_db["records"][1]
+        updated = await set_metadata_interesting(db, rec_xlsx.id, True)
+        assert updated is not None
+        assert updated["interesting"] is True
+        # Now it shows up under the interesting-only filter alongside the pdf.
+        marked = await query_metadata(
+            db, {"project_id": populated_db["project"].id, "interesting": True}
+        )
+        assert len(marked) == 2
+
+        reverted = await set_metadata_interesting(db, rec_xlsx.id, False)
+        assert reverted["interesting"] is False
+
+    async def test_set_interesting_unknown_id_returns_none(self, db):
+        assert await set_metadata_interesting(db, 999_999, True) is None

@@ -33,6 +33,7 @@
         <a href="{{ url_for('submit_manual') }}?project_id={{ p.id }}" role="button" class="outline btn-sm">+ Manual</a>
         <a href="{{ url_for('tasks_list') }}?project_id={{ p.id }}" role="button" class="outline secondary btn-sm">Tasks</a>
         <a href="{{ url_for('metadata_search') }}?project_id={{ p.id }}" role="button" class="outline secondary btn-sm">Metadata</a>
+        <a href="{{ url_for('project_detail', pid=p.id) }}" role="button" class="outline secondary btn-sm">★ Interesting</a>
         <a href="{{ url_for('project_edit', pid=p.id) }}" role="button" class="outline btn-sm">Edit</a>
         <form action="{{ url_for('project_delete', pid=p.id) }}" method="POST" style="display:inline;">
           <button type="submit" class="outline secondary btn-sm"

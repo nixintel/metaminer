@@ -33,6 +33,10 @@ _MIGRATIONS = [
     # to avoid full table scans when viewing logs for a specific task or submission.
     "CREATE INDEX IF NOT EXISTS ix_log_entries_task_id ON log_entries (task_id)",
     "CREATE INDEX IF NOT EXISTS ix_log_entries_submission_id ON log_entries (submission_id)",
+    # Added in v0.6: user-toggled "Interesting" flag on metadata records, with a
+    # partial index covering only the marked rows (what the Interesting-only filter scans).
+    "ALTER TABLE metadata_records ADD COLUMN IF NOT EXISTS interesting BOOLEAN NOT NULL DEFAULT FALSE",
+    "CREATE INDEX IF NOT EXISTS ix_metadata_records_interesting ON metadata_records (interesting) WHERE interesting = true",
 ]
 
 

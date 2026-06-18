@@ -23,6 +23,7 @@ class MetadataRecordResponse(BaseModel):
     creator_tool: str | None
     producer: str | None
     pdf_version: str | None
+    interesting: bool = False
     # Submission context
     source_url: str | None = None
     submission_mode: str | None = None
@@ -40,6 +41,12 @@ class MetadataRecordResponse(BaseModel):
         data["project_id"] = project.id
         data["project_name"] = project.name
         return cls(**data)
+
+
+class MetadataRecordUpdate(BaseModel):
+    # Typed model (not a free-form dict) so a later auto-classification phase can add
+    # e.g. interesting_reason without breaking existing callers.
+    interesting: bool | None = None
 
 
 class MetadataQueryParams(BaseModel):

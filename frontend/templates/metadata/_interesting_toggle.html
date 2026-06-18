@@ -1,0 +1,13 @@
+{#- Self-contained Interesting toggle. The button IS the hx-swap=outerHTML target,
+    and carries the TARGET state (negation of current) in hx-vals so the server
+    PATCHes an absolute value — no read-modify-write race. Reused in the results
+    table, the record detail page, and the project detail page. -#}
+<button type="button"
+        class="star-toggle {{ 'is-interesting' if record.interesting else '' }}{{ ' toggle-error' if toggle_error else '' }}"
+        hx-post="{{ url_for('metadata_interesting', rid=record.id) }}"
+        hx-vals='{"interesting": {{ 'false' if record.interesting else 'true' }} }'
+        hx-swap="outerHTML"
+        aria-pressed="{{ 'true' if record.interesting else 'false' }}"
+        title="{% if toggle_error %}Toggle failed: {{ toggle_error }} — click to retry{% elif record.interesting %}Interesting — click to unmark{% else %}Mark as Interesting{% endif %}">
+  {{ '★' if record.interesting else '☆' }}
+</button>

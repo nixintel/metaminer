@@ -49,6 +49,7 @@
         <th class="sortable" data-col="5">Extracted <span class="sort-icon">↕</span></th>
         <th class="sortable" data-col="6">Project <span class="sort-icon">↕</span></th>
         <th></th>
+        <th title="Interesting" style="text-align:center;">★</th>
       </tr>
     </thead>
     <tbody id="results-tbody">
@@ -63,6 +64,7 @@
         <td style="white-space:nowrap; font-size:0.8rem;">{{ (r.extracted_at or '')[:10] }}</td>
         <td>{{ r.project_name or r.project_id }}</td>
         <td><a href="{{ url_for('metadata_detail', rid=r.id) }}">View</a></td>
+        <td style="text-align:center;">{% with record=r %}{% include "metadata/_interesting_toggle.html" %}{% endwith %}</td>
       </tr>
       {% endfor %}
     </tbody>

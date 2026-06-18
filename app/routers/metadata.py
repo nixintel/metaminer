@@ -3,8 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
 from datetime import datetime
 from app.database import get_db
-from app.services.query_service import query_metadata, query_metadata_tree, get_metadata_by_id
-from app.schemas.metadata import QueryRequest
+from app.services.query_service import (
+    query_metadata,
+    query_metadata_tree,
+    get_metadata_by_id,
+    set_metadata_interesting,
+)
+from app.schemas.metadata import QueryRequest, MetadataRecordUpdate
 
 router = APIRouter(prefix="/metadata", tags=["metadata"])
 
@@ -22,6 +27,7 @@ async def search_metadata(
     mime_type: Annotated[str | None, Query()] = None,
     pdf_variant: Annotated[str | None, Query(description="original or rollback")] = None,
     submission_mode: Annotated[str | None, Query(description="manual, crawl, or telegram")] = None,
+    interesting: Annotated[bool | None, Query(description="If true, only entries marked Interesting")] = None,
     source_url__contains: Annotated[str | None, Query()] = None,
     extracted_after: Annotated[datetime | None, Query()] = None,
     extracted_before: Annotated[datetime | None, Query()] = None,
@@ -45,6 +51,7 @@ async def search_metadata(
         mime_type=mime_type,
         pdf_variant=pdf_variant,
         submission_mode=submission_mode,
+        interesting=interesting,
         source_url__contains=source_url__contains,
         extracted_after=extracted_after,
         extracted_before=extracted_before,
@@ -66,6 +73,20 @@ async def query_metadata_post(request: QueryRequest, db: AsyncSession = Depends(
 @router.get("/{metadata_id}")
 async def get_metadata(metadata_id: int, db: AsyncSession = Depends(get_db)):
     record = await get_metadata_by_id(db, metadata_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Metadata record {metadata_id} not found")
+    return record
+
+
+@router.patch("/{metadata_id}")
+async def update_metadata(
+    metadata_id: int, body: MetadataRecordUpdate, db: AsyncSession = Depends(get_db)
+):
+    data = body.model_dump(exclude_unset=True)
+    if "interesting" in data:
+        record = await set_metadata_interesting(db, metadata_id, data["interesting"])
+    else:
+        record = await get_metadata_by_id(db, metadata_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"Metadata record {metadata_id} not found")
     return record

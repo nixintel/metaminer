@@ -2,7 +2,10 @@
 {% block title %}Metadata #{{ record.id }} – Metaminer{% endblock %}
 {% block content %}
 <div class="page-header">
-  <h2>Metadata Record #{{ record.id }}</h2>
+  <h2>
+    Metadata Record #{{ record.id }}
+    <span style="margin-left:0.4rem; vertical-align:middle;">{% include "metadata/_interesting_toggle.html" %}</span>
+  </h2>
   <a href="{{ url_for('metadata_search') }}" role="button" class="outline secondary btn-sm">← Back</a>
 </div>
 

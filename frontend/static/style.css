@@ -110,6 +110,25 @@
 .badge-info      { background: #dbeafe; color: #1d4ed8; }
 .badge-debug     { background: #f3f4f6; color: #6b7280; }
 
+/* ── Interesting star toggle ───────────────────────────────────────────────── */
+
+.star-toggle {
+  background: none;
+  border: none;
+  padding: 0 0.2rem;
+  margin: 0;
+  width: auto;
+  line-height: 1;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: #cbd5e1;            /* empty/outline star */
+  transition: color 0.12s ease, transform 0.06s ease;
+}
+.star-toggle:hover    { color: #f59e0b; }
+.star-toggle:active   { transform: scale(0.9); }
+.star-toggle.is-interesting { color: #f59e0b; }   /* filled star — amber */
+.star-toggle.toggle-error   { color: #991b1b; }   /* last toggle failed */
+
 /* ── Health grid ─────────────────────────────────────────────────────────────── */
 
 .health-grid {

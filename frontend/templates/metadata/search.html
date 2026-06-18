@@ -57,6 +57,12 @@
         {% endfor %}
       </select>
     </div>
+    <div>
+      <label style="white-space:nowrap;">
+        <input type="checkbox" name="interesting" value="true" {{ 'checked' if request.args.get('interesting') else '' }}>
+        ★ Interesting only
+      </label>
+    </div>
     <button type="submit">Search</button>
   </div>
 </form>
@@ -151,6 +157,12 @@
         <option value="desc" {{ 'selected' if request.args.get('order','desc') == 'desc' else '' }}>Newest first</option>
         <option value="asc"  {{ 'selected' if request.args.get('order') == 'asc' else '' }}>Oldest first</option>
       </select>
+    </div>
+    <div>
+      <label style="white-space:nowrap;">
+        <input type="checkbox" name="interesting" value="true" {{ 'checked' if request.args.get('interesting') else '' }}>
+        ★ Interesting only
+      </label>
     </div>
     <div>
       <label>Per page</label>

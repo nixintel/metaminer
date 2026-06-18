@@ -67,6 +67,20 @@ async def get_metadata_by_id(db: AsyncSession, metadata_id: int) -> dict | None:
     return _serialize_row(*row) if row is not None else None
 
 
+async def set_metadata_interesting(db: AsyncSession, metadata_id: int, interesting: bool) -> dict | None:
+    """Set the 'interesting' flag on a metadata record.
+
+    Returns the context-serialized record (project_name, source_url, …) or None if no
+    record with that id exists. Caller's transaction is committed by the get_db dependency.
+    """
+    record = await db.get(MetadataRecord, metadata_id)
+    if record is None:
+        return None
+    record.interesting = interesting
+    await db.flush()
+    return await get_metadata_by_id(db, metadata_id)
+
+
 async def query_metadata(db: AsyncSession, params: dict) -> list[dict]:
     q = (
         select(MetadataRecord, FileSubmission, Project)
@@ -109,6 +123,9 @@ async def query_metadata(db: AsyncSession, params: dict) -> list[dict]:
 
     if params.get("submission_mode"):
         filters.append(FileSubmission.submission_mode == params["submission_mode"])
+
+    if params.get("interesting"):
+        filters.append(MetadataRecord.interesting.is_(True))
 
     if params.get("source_url__contains"):
         filters.append(FileSubmission.source_url.ilike(f"%{params['source_url__contains']}%"))
