@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Filters – Metaminer{% endblock %}
+
+{% block page_description %}
+<p class="page-desc">Auto-tagging criteria. When metadata is ingested, every active filter is checked; a match flags the entry as <strong>Interesting</strong> (recording which filter matched). Keyword and regex filters scan the source URL and the raw exif data; an exif-field filter flags when a named field is present and non-empty. Filters apply to a single project or globally (all projects). Use "Apply to existing" to check already-ingested data.</p>
+{% endblock %}
+
+{% block content %}
+{% set project_names = {} %}
+{% for p in projects %}{% set _ = project_names.update({p.id: p.name}) %}{% endfor %}
+
+<div class="page-header">
+  <h2>Filters</h2>
+  <a href="{{ url_for('filter_new') }}" role="button">+ New Filter</a>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Type</th>
+      <th>Value</th>
+      <th>Scope</th>
+      <th>Active</th>
+      <th class="actions">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in filters %}
+    <tr>
+      <td>{{ f.id }}</td>
+      <td><strong>{{ f.name }}</strong></td>
+      <td>{{ f.filter_type }}</td>
+      <td class="cell-truncate" title="{{ f.value }}" style="max-width:280px; font-family:monospace; font-size:0.85rem;">{{ f.value }}</td>
+      <td>{{ project_names.get(f.project_id, f.project_id) if f.project_id else 'Global' }}</td>
+      <td>
+        <form action="{{ url_for('filter_toggle', fid=f.id) }}" method="POST" style="display:inline;">
+          <button type="submit" class="outline btn-sm {{ 'secondary' if not f.is_active else '' }}"
+                  title="{{ 'Deactivate' if f.is_active else 'Activate' }}">
+            {{ 'Active' if f.is_active else 'Paused' }}
+          </button>
+        </form>
+      </td>
+      <td class="actions">
+        <a href="{{ url_for('filter_edit', fid=f.id) }}" role="button" class="outline btn-sm">Edit</a>
+        <form action="{{ url_for('filter_backfill', fid=f.id) }}" method="POST" style="display:inline;">
+          <input type="hidden" name="project_id" value="{{ f.project_id if f.project_id else '' }}">
+          <button type="submit" class="outline btn-sm"
+                  hx-confirm="Apply this filter to existing {{ 'project' if f.project_id else 'whole-database' }} metadata now?">
+            Apply to existing
+          </button>
+        </form>
+        <form action="{{ url_for('filter_delete', fid=f.id) }}" method="POST" style="display:inline;">
+          <button type="submit" class="outline secondary btn-sm" hx-confirm="Delete this filter?">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No filters yet. <a href="{{ url_for('filter_new') }}">Create one</a>.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

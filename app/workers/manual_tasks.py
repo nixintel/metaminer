@@ -61,6 +61,11 @@ def run_manual_task(
                 task.files_found = len(all_files)
                 await db.commit()
 
+            # Load active auto-tagging filters once for the whole task (project + globals).
+            from app.services.filter_service import load_active_filters
+            async with SessionLocal() as db:
+                active_filters = await load_active_filters(db, project_id)
+
             processed = 0
             for file_path in all_files:
                 if check_cancel_flag(task_id):
@@ -88,6 +93,7 @@ def run_manual_task(
                             pdf_mode=pdf_mode,
                             task_id=task_id,
                             submission_mode="manual",
+                            active_filters=active_filters,
                         )
                         await db.commit()
                     processed += 1

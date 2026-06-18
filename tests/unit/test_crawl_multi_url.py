@@ -9,7 +9,15 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from pydantic import ValidationError
 
+from app.services.filter_service import FilterSet
+
 pytestmark = pytest.mark.unit
+
+
+def _no_filters():
+    """Patch target: run_crawl_task loads active filters once; tests don't exercise that."""
+    return patch("app.services.filter_service.load_active_filters",
+                 new=AsyncMock(return_value=FilterSet([])))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -168,6 +176,7 @@ class TestMultiUrlTaskLoop:
         with (
             patch("app.workers.crawl_tasks._crawl_one_url", side_effect=fake_crawl),
             patch("app.workers.crawl_tasks._progress_committer", side_effect=noop_committer),
+            _no_filters(),
             patch("app.database.make_task_session_factory", return_value=(engine, SessionLocal)),
             patch("app.workers.crawl_tasks.check_cancel_flag", side_effect=fake_check_cancel),
             patch("app.workers.crawl_tasks.clear_cancel_flag"),
@@ -311,6 +320,7 @@ class TestMultiUrlTaskLoop:
         with (
             patch("app.workers.crawl_tasks._crawl_one_url", side_effect=capturing),
             patch("app.workers.crawl_tasks._progress_committer", side_effect=noop_committer),
+            _no_filters(),
             patch("app.database.make_task_session_factory", return_value=(engine, SessionLocal)),
             patch("app.workers.crawl_tasks.check_cancel_flag", return_value=False),
             patch("app.workers.crawl_tasks.clear_cancel_flag"),

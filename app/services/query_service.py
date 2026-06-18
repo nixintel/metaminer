@@ -77,6 +77,8 @@ async def set_metadata_interesting(db: AsyncSession, metadata_id: int, interesti
     if record is None:
         return None
     record.interesting = interesting
+    # Provenance: a manual mark records "manual"; unmarking clears the reason.
+    record.interesting_reason = "manual" if interesting else None
     await db.flush()
     return await get_metadata_by_id(db, metadata_id)
 
@@ -126,6 +128,13 @@ async def query_metadata(db: AsyncSession, params: dict) -> list[dict]:
 
     if params.get("interesting"):
         filters.append(MetadataRecord.interesting.is_(True))
+
+    if params.get("matched_filter_id"):
+        # Records auto-tagged by a specific filter. interesting_reason is the frozen
+        # descriptor "<name> (filter #<id>): <type>=<value>"; the " (filter #<id>):" token
+        # (leading space, trailing colon) uniquely identifies the filter id.
+        fid = int(params["matched_filter_id"])
+        filters.append(MetadataRecord.interesting_reason.ilike(f"% (filter #{fid}):%"))
 
     if params.get("source_url__contains"):
         filters.append(FileSubmission.source_url.ilike(f"%{params['source_url__contains']}%"))

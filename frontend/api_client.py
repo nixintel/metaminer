@@ -120,6 +120,27 @@ def query_metadata_tree(body):
     return r.json()
 
 
+# ── Filters (auto-tagging criteria) ─────────────────────────────────────────────
+
+def list_filters(project_id=None):
+    return _get("/filters", project_id=project_id)
+
+def get_filter(fid):
+    return _get(f"/filters/{fid}")
+
+def create_filter(**kwargs):
+    return _post("/filters", json=kwargs)
+
+def update_filter(fid, **kwargs):
+    return _patch(f"/filters/{fid}", json={k: v for k, v in kwargs.items() if v is not None})
+
+def delete_filter(fid):
+    return _delete(f"/filters/{fid}")
+
+def backfill_filter(fid, project_id=None):
+    return _post(f"/filters/{fid}/backfill", json={"project_id": project_id})
+
+
 # ── Logs ──────────────────────────────────────────────────────────────────────
 
 def get_logs(level=None, task_id=None, submission_id=None,

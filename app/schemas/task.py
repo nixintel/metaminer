@@ -5,7 +5,7 @@ from pydantic import BaseModel, computed_field
 
 class TaskResponse(BaseModel):
     id: int
-    project_id: int
+    project_id: int | None = None
     task_type: str
     status: str
     celery_task_id: str | None

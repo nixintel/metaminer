@@ -57,6 +57,20 @@ def _make_record(submission_id: int, meta: dict, pdf_variant: str | None, versio
     )
 
 
+def _apply_filters(rec: MetadataRecord, meta: dict, source_url: str | None, active_filters) -> None:
+    """Auto-tag a freshly built record if any active filter matches (additive: never unflags)."""
+    if not active_filters or rec.interesting:
+        return
+    matched, reason = active_filters.evaluate(source_url, rec.raw_json, meta)
+    if matched:
+        rec.interesting = True
+        rec.interesting_reason = reason
+        logger.info(
+            "Auto-tagged interesting | submission_id=%s | variant=%s | reason=%s",
+            rec.submission_id, rec.pdf_variant, reason,
+        )
+
+
 async def _is_duplicate(db: AsyncSession, project_id: int, file_hash: str) -> bool:
     result = await db.execute(
         select(FileSubmission.id)
@@ -78,6 +92,7 @@ async def process_single_file(
     source_url: str | None = None,
     http_etag: str | None = None,
     http_last_modified: str | None = None,
+    active_filters=None,
 ) -> dict:
     path = Path(file_path)
     if not path.exists():
@@ -139,6 +154,12 @@ async def process_single_file(
     exif_version = await asyncio.to_thread(get_exiftool_version)
     records_created = 0
 
+    # Auto-tagging filters. Callers in hot loops preload these once per task and pass them
+    # in; if not provided, load once here (one query for this file) as a safe fallback.
+    if active_filters is None:
+        from app.services.filter_service import load_active_filters
+        active_filters = await load_active_filters(db, project_id)
+
     if use_pdf_mode and is_pdf(path):
         logger.info(
             "PDF detected | submission_id=%d | file=%s | extracting original + rollback variants",
@@ -148,7 +169,9 @@ async def process_single_file(
         promoted = _extract_promoted(original_meta)
         submission.mime_type = promoted.get("mime_type")
 
-        db.add(_make_record(submission.id, original_meta, "original", exif_version))
+        rec = _make_record(submission.id, original_meta, "original", exif_version)
+        _apply_filters(rec, original_meta, source_url, active_filters)
+        db.add(rec)
         records_created += 1
         logger.info(
             "Metadata record saved | submission_id=%d | variant=original | "
@@ -162,7 +185,9 @@ async def process_single_file(
         )
 
         if rollback_meta:
-            db.add(_make_record(submission.id, rollback_meta, "rollback", exif_version))
+            rec = _make_record(submission.id, rollback_meta, "rollback", exif_version)
+            _apply_filters(rec, rollback_meta, source_url, active_filters)
+            db.add(rec)
             records_created += 1
             logger.info(
                 "Metadata record saved | submission_id=%d | variant=rollback",
@@ -190,7 +215,9 @@ async def process_single_file(
 
         promoted = _extract_promoted(meta)
         submission.mime_type = promoted.get("mime_type")
-        db.add(_make_record(submission.id, meta, None, exif_version))
+        rec = _make_record(submission.id, meta, None, exif_version)
+        _apply_filters(rec, meta, source_url, active_filters)
+        db.add(rec)
         records_created += 1
         logger.info(
             "Metadata record saved | submission_id=%d | file_type=%s | "

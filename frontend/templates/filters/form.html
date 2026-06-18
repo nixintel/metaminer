@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if flt else 'New' }} Filter – Metaminer{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>{{ 'Edit Filter' if flt else 'New Filter' }}</h2>
+  <a href="{{ url_for('filters_list') }}" role="button" class="outline secondary btn-sm">← Back</a>
+</div>
+
+<form method="POST" action="{{ action }}" style="max-width: 640px;">
+  <label for="name">Name</label>
+  <input type="text" id="name" name="name" required
+         value="{{ flt.name if flt else '' }}" placeholder="e.g. Invoices, Author emails">
+
+  <label for="filter_type">Type</label>
+  <select id="filter_type" name="filter_type">
+    {% set cur = flt.filter_type if flt else 'keyword' %}
+    <option value="keyword"    {{ 'selected' if cur == 'keyword' else '' }}>Keyword — substring of source URL + raw exif (case-insensitive)</option>
+    <option value="regex"      {{ 'selected' if cur == 'regex' else '' }}>Regex — pattern over source URL + raw exif</option>
+    <option value="exif_field" {{ 'selected' if cur == 'exif_field' else '' }}>Exif field — flag when this field exists and is non-empty</option>
+  </select>
+
+  <label for="value">Value</label>
+  <input type="text" id="value" name="value"
+         value="{{ flt.value if flt else '' }}"
+         style="font-family: monospace;"
+         placeholder="keyword text / regex pattern / exif field name (e.g. GPS:GPSLatitude)">
+  <small id="value-help" class="muted"></small>
+
+  <label for="project_id">Scope</label>
+  <select id="project_id" name="project_id" {{ 'disabled' if flt else '' }}>
+    <option value="">All projects (global)</option>
+    {% for p in projects %}
+    <option value="{{ p.id }}" {{ 'selected' if flt and flt.project_id == p.id else '' }}>{{ p.name }}</option>
+    {% endfor %}
+  </select>
+  {% if flt %}<small class="muted">Scope can't be changed after creation. Create a new filter to change scope.</small>{% endif %}
+
+  {% if flt %}
+  <label style="display:flex; gap:0.5rem; align-items:center; margin-top:0.75rem;">
+    <input type="checkbox" name="is_active" {{ 'checked' if flt.is_active else '' }} style="width:auto; margin:0;">
+    Active
+  </label>
+  {% else %}
+  <fieldset style="margin-top:1rem;">
+    <legend>Check existing records</legend>
+    <label style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="radio" name="check_existing" value="none" checked style="width:auto; margin:0;"> No — only tag newly ingested metadata
+    </label>
+    <label style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="radio" name="check_existing" value="project" style="width:auto; margin:0;"> Yes — scan the selected project's existing metadata
+    </label>
+    <label style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="radio" name="check_existing" value="all" style="width:auto; margin:0;"> Yes — scan the whole database
+    </label>
+    <small class="muted">Backfill runs as a background task; watch progress on the Tasks page.</small>
+  </fieldset>
+  {% endif %}
+
+  <button type="submit" style="margin-top: 1rem;">{{ 'Save Changes' if flt else 'Create Filter' }}</button>
+</form>
+
+<script>
+(function () {
+  const DEFAULT_EMAIL_REGEX = {{ default_email_regex | tojson }};
+  const typeSel = document.getElementById('filter_type');
+  const valueEl = document.getElementById('value');
+  const help = document.getElementById('value-help');
+
+  const HELP = {
+    keyword: 'Case-insensitive substring matched against the source URL and the raw exif JSON.',
+    regex: 'Regular expression (case-insensitive) matched against the source URL and raw exif JSON.',
+    exif_field: 'An exif field name, e.g. "Author" or "GPS:GPSLatitude". Flags when the field exists and is non-empty.',
+  };
+
+  function sync() {
+    const t = typeSel.value;
+    help.textContent = HELP[t] || '';
+    // Prefill the default email regex when switching to regex with an empty value.
+    if (t === 'regex' && !valueEl.value.trim()) {
+      valueEl.value = DEFAULT_EMAIL_REGEX;
+    }
+  }
+  typeSel.addEventListener('change', sync);
+  sync();
+})();
+</script>
+{% endblock %}

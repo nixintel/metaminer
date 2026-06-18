@@ -38,6 +38,13 @@ def _projects():
         return []
 
 
+def _filters():
+    try:
+        return api_client.list_filters()
+    except Exception:
+        return []
+
+
 def _save_upload(file) -> str:
     """Save an uploaded FileStorage object to the shared temp dir. Returns the saved path."""
     os.makedirs(TEMP_DIR, exist_ok=True)
@@ -54,7 +61,7 @@ def _save_upload(file) -> str:
 # of the promoted metadata fields follow. Flattened exiftool columns are appended
 # after these by _records_to_csv().
 CORE_CSV_FIELDS = [
-    "id", "project_name", "source_url", "interesting",
+    "id", "project_name", "source_url", "interesting", "interesting_reason",
     "file_name", "file_type", "mime_type", "file_size",
     "author", "title", "creator_tool", "producer", "pdf_version",
     "create_date", "modify_date", "extracted_at", "submission_mode",
@@ -504,7 +511,7 @@ def metadata_search():
 
     return render_template(
         "metadata/search.html",
-        mode=mode, projects=projects, records=records,
+        mode=mode, projects=projects, records=records, filters=_filters(),
         searched=searched, export_href=export_href, pager=pager,
         page_size=page_size_raw, page_size_options=PAGE_SIZE_OPTIONS,
         qb_fields=qb_fields, qb_ops=qb_ops, qb_values=qb_values,
@@ -794,6 +801,123 @@ def scheduled_crawl_toggle(sid):
     except Exception as e:
         flash(_api_error(e, "toggle schedule"), "error")
     return redirect(url_for("scheduled_crawls_list"))
+
+
+# ── Filters (auto-tagging criteria) ──────────────────────────────────────────────
+
+DEFAULT_EMAIL_REGEX = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+
+
+def _form_project_id():
+    """Parse the project_id form field: empty string means global (None)."""
+    raw = (request.form.get("project_id") or "").strip()
+    return int(raw) if raw else None
+
+
+@app.get("/filters")
+def filters_list():
+    filters = []
+    try:
+        filters = api_client.list_filters()
+    except Exception as e:
+        flash(_api_error(e, "load filters"), "error")
+    return render_template("filters/list.html", filters=filters, projects=_projects())
+
+
+@app.get("/filters/new")
+def filter_new():
+    return render_template("filters/form.html", flt=None, projects=_projects(),
+                           default_email_regex=DEFAULT_EMAIL_REGEX,
+                           action=url_for("filter_create"))
+
+
+@app.post("/filters/new")
+def filter_create():
+    try:
+        project_id = _form_project_id()
+        created = api_client.create_filter(
+            name=request.form.get("name", "").strip(),
+            filter_type=request.form.get("filter_type", "keyword"),
+            value=request.form.get("value", ""),
+            project_id=project_id,
+            is_active=bool(request.form.get("is_active", "on")),
+        )
+        flash("Filter created.", "success")
+        # Optionally apply to existing data.
+        check = request.form.get("check_existing", "none")
+        if check in ("project", "all"):
+            scope = project_id if check == "project" else None
+            api_client.backfill_filter(created["id"], project_id=scope)
+            flash(
+                "Backfill started — check the Tasks page for progress "
+                f"({'this project' if check == 'project' else 'whole database'}).",
+                "info",
+            )
+    except Exception as e:
+        flash(_api_error(e, "create filter"), "error")
+        return redirect(url_for("filter_new"))
+    return redirect(url_for("filters_list"))
+
+
+@app.get("/filters/<int:fid>/edit")
+def filter_edit(fid):
+    try:
+        flt = api_client.get_filter(fid)
+    except Exception as e:
+        flash(_api_error(e, "load filter"), "error")
+        return redirect(url_for("filters_list"))
+    return render_template("filters/form.html", flt=flt, projects=_projects(),
+                           default_email_regex=DEFAULT_EMAIL_REGEX,
+                           action=url_for("filter_update", fid=fid))
+
+
+@app.post("/filters/<int:fid>/edit")
+def filter_update(fid):
+    try:
+        api_client.update_filter(
+            fid,
+            name=request.form.get("name", "").strip(),
+            filter_type=request.form.get("filter_type"),
+            value=request.form.get("value"),
+            is_active=bool(request.form.get("is_active")),
+        )
+        flash("Filter updated.", "success")
+    except Exception as e:
+        flash(_api_error(e, "update filter"), "error")
+        return redirect(url_for("filter_edit", fid=fid))
+    return redirect(url_for("filters_list"))
+
+
+@app.post("/filters/<int:fid>/delete")
+def filter_delete(fid):
+    try:
+        api_client.delete_filter(fid)
+        flash("Filter deleted.", "success")
+    except Exception as e:
+        flash(_api_error(e, "delete filter"), "error")
+    return redirect(url_for("filters_list"))
+
+
+@app.post("/filters/<int:fid>/toggle")
+def filter_toggle(fid):
+    try:
+        f = api_client.get_filter(fid)
+        api_client.update_filter(fid, is_active=not f["is_active"])
+    except Exception as e:
+        flash(_api_error(e, "toggle filter"), "error")
+    return redirect(url_for("filters_list"))
+
+
+@app.post("/filters/<int:fid>/backfill")
+def filter_backfill(fid):
+    try:
+        raw = (request.form.get("project_id") or "").strip()
+        scope = int(raw) if raw else None
+        api_client.backfill_filter(fid, project_id=scope)
+        flash("Backfill started — check the Tasks page for progress.", "info")
+    except Exception as e:
+        flash(_api_error(e, "backfill filter"), "error")
+    return redirect(url_for("filters_list"))
 
 
 # ── Telegram ──────────────────────────────────────────────────────────────────

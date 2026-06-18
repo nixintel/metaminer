@@ -8,6 +8,9 @@
   </h2>
   <a href="{{ url_for('metadata_search') }}" role="button" class="outline secondary btn-sm">← Back</a>
 </div>
+{% if record.interesting and record.interesting_reason %}
+<p class="muted" style="margin-top:-0.5rem;">★ Flagged interesting — <strong>{{ record.interesting_reason }}</strong></p>
+{% endif %}
 
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
   <article>

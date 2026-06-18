@@ -12,10 +12,12 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    # Nullable: a whole-DB filter backfill (global filter, no single project) has no project.
+    # All ingestion task types (manual/crawl/telegram) always set this.
+    project_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=True
     )
-    task_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'manual' | 'crawl' | 'telegram'
+    task_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'manual' | 'crawl' | 'telegram' | 'filter_backfill'
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
     )  # pending | running | completed | failed | cancelled
@@ -32,7 +34,7 @@ class Task(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    project: Mapped["Project"] = relationship("Project", back_populates="tasks")
+    project: Mapped["Project | None"] = relationship("Project", back_populates="tasks")
     submissions: Mapped[list["FileSubmission"]] = relationship(
         "FileSubmission", back_populates="task"
     )

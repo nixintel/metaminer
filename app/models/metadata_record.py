@@ -38,11 +38,13 @@ class MetadataRecord(Base):
     producer: Mapped[str | None] = mapped_column(Text, nullable=True)
     pdf_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
-    # User-toggled "Interesting" flag (manual triage). A future phase will let
-    # configurable conditions set this automatically; same column, no schema churn.
+    # User-toggled "Interesting" flag (manual triage) or set automatically by filters.
     interesting: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Provenance for the flag: "manual" when toggled by a user, or a filter descriptor
+    # like "Invoices (filter #4): keyword=invoice" when auto-tagged. NULL when not flagged.
+    interesting_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     submission: Mapped["FileSubmission"] = relationship(
         "FileSubmission", back_populates="metadata_records"

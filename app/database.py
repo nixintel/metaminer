@@ -37,6 +37,20 @@ _MIGRATIONS = [
     # partial index covering only the marked rows (what the Interesting-only filter scans).
     "ALTER TABLE metadata_records ADD COLUMN IF NOT EXISTS interesting BOOLEAN NOT NULL DEFAULT FALSE",
     "CREATE INDEX IF NOT EXISTS ix_metadata_records_interesting ON metadata_records (interesting) WHERE interesting = true",
+    # Added in v0.7: auto-tagging filters. Provenance of the interesting flag, and a
+    # nullable tasks.project_id so a whole-DB filter backfill (no single project) is trackable.
+    "ALTER TABLE metadata_records ADD COLUMN IF NOT EXISTS interesting_reason TEXT",
+    "ALTER TABLE tasks ALTER COLUMN project_id DROP NOT NULL",
+]
+
+
+# Default filters seeded on startup so common criteria are available out of the box.
+# Each is inserted only if no filter with the same (filter_type, value) already exists,
+# so this is idempotent and never duplicates. Note: deleting a default and restarting
+# will re-create it (these are built-in defaults, always available).
+_DEFAULT_FILTERS = [
+    # name, filter_type, value
+    ("Email addresses", "regex", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
 ]
 
 
@@ -45,6 +59,23 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
         for stmt in _MIGRATIONS:
             await conn.execute(text(stmt))
+        # Seed built-in default filters (global, active). Idempotent: check existence
+        # first, then insert — kept as two statements so no bind parameter is reused in
+        # incompatible type positions (which asyncpg rejects as ambiguous).
+        for name, ftype, value in _DEFAULT_FILTERS:
+            exists = (await conn.execute(
+                text("SELECT 1 FROM filters WHERE filter_type = :ftype AND value = :value LIMIT 1"),
+                {"ftype": ftype, "value": value},
+            )).first()
+            if not exists:
+                await conn.execute(
+                    text(
+                        "INSERT INTO filters (name, filter_type, value, project_id, is_active, "
+                        "created_at, updated_at) "
+                        "VALUES (:name, :ftype, :value, NULL, true, now(), now())"
+                    ),
+                    {"name": name, "ftype": ftype, "value": value},
+                )
 
 
 async def get_db():

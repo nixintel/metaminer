@@ -175,6 +175,7 @@ async def _crawl_one_url(
     SessionLocal,
     settings,
     shared: "_Progress",
+    active_filters=None,
 ) -> dict:
     """
     Run Scrapy for a single URL.
@@ -234,6 +235,7 @@ async def _crawl_one_url(
             pdf_mode=None,
             deduplicate=deduplicate,
             session_factory=SessionLocal,
+            active_filters=active_filters,
         )
         if outcome == "processed":
             processed += 1
@@ -393,6 +395,16 @@ def run_crawl_task(
             cancelled = False
             sem = asyncio.Semaphore(max(1, settings.CRAWL_URL_CONCURRENCY))
 
+            # Load active auto-tagging filters once for the whole crawl (project + globals).
+            # A filter created mid-crawl won't be picked up here; the backfill task covers that.
+            from app.services.filter_service import load_active_filters
+            async with SessionLocal() as db:
+                active_filters = await load_active_filters(db, project_id)
+            logger.info(
+                "Loaded %d active filter(s) for auto-tagging | task_id=%d",
+                len(active_filters), task_id,
+            )
+
             # Per-URL coroutine: owns its retry loop so a retry delay yields to
             # sibling URLs instead of blocking them. Returns a tagged stats dict
             # rather than mutating outer counters, so concurrent URLs can't race.
@@ -422,6 +434,7 @@ def run_crawl_task(
                                 SessionLocal=SessionLocal,
                                 settings=settings,
                                 shared=shared,
+                                active_filters=active_filters,
                             )
                             return {"status": "ok", "url": url, **result}
                         except _TaskCancelled:

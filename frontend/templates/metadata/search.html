@@ -58,6 +58,15 @@
       </select>
     </div>
     <div>
+      <label style="white-space:nowrap;">Matched filter</label>
+      <select name="matched_filter_id" style="min-width: 150px;">
+        <option value="">Any filter</option>
+        {% for f in filters %}
+        <option value="{{ f.id }}" {{ 'selected' if request.args.get('matched_filter_id') == f.id|string else '' }}>{{ f.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
       <label style="white-space:nowrap;">
         <input type="checkbox" name="interesting" value="true" {{ 'checked' if request.args.get('interesting') else '' }}>
         ★ Interesting only
@@ -156,6 +165,15 @@
       <select name="order">
         <option value="desc" {{ 'selected' if request.args.get('order','desc') == 'desc' else '' }}>Newest first</option>
         <option value="asc"  {{ 'selected' if request.args.get('order') == 'asc' else '' }}>Oldest first</option>
+      </select>
+    </div>
+    <div>
+      <label>Matched filter</label>
+      <select name="matched_filter_id">
+        <option value="">Any filter</option>
+        {% for f in filters %}
+        <option value="{{ f.id }}" {{ 'selected' if request.args.get('matched_filter_id') == f.id|string else '' }}>{{ f.name }}</option>
+        {% endfor %}
       </select>
     </div>
     <div>

@@ -7,10 +7,11 @@ import logging
 from config import settings
 from app.database import init_db
 from app.utils.logging_config import configure_logging, drain_log_queue
-from app.routers import health, projects, submissions, crawl, tasks, metadata, logs, scheduled_crawls, telegram
+from app.routers import health, projects, submissions, crawl, tasks, metadata, logs, scheduled_crawls, telegram, filters
 import app.models.scheduled_crawl          # ensure table is created by init_db()
 import app.models.telegram_credentials     # ensure table is created by init_db()
 import app.models.scheduled_telegram_scrape  # ensure table is created by init_db()
+import app.models.filter_criteria          # ensure 'filters' table is created by init_db()
 
 
 @asynccontextmanager
@@ -50,6 +51,7 @@ app.include_router(metadata.router, prefix=prefix)
 app.include_router(logs.router, prefix=prefix)
 app.include_router(scheduled_crawls.router, prefix=prefix)
 app.include_router(telegram.router, prefix=prefix)
+app.include_router(filters.router, prefix=prefix)
 
 
 @app.exception_handler(Exception)

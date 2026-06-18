@@ -63,6 +63,12 @@
           </a>
         </li>
         <li>
+          <a href="{{ url_for('filters_list') }}"
+             class="{{ 'active' if 'filter' in (request.endpoint or '') else '' }}">
+            Filters
+          </a>
+        </li>
+        <li>
           <a href="{{ url_for('telegram_index') }}"
              class="{{ 'active' if 'telegram' in (request.endpoint or '') else '' }}">
             Telegram

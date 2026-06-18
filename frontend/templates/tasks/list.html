@@ -63,7 +63,7 @@
     <tr>
       <td>{{ task.id }}</td>
       <td>{{ task.task_type }}</td>
-      <td>{{ project_names.get(task.project_id, task.project_id) }}</td>
+      <td>{{ project_names.get(task.project_id, task.project_id) if task.project_id else 'All / —' }}</td>
       <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
         {% if task.task_type == 'crawl' and task.crawl_urls %}
           {{ task.crawl_urls[0] }}{% if task.crawl_urls | length > 1 %} <span class="muted">(plus {{ task.crawl_urls | length - 1 }} others)</span>{% endif %}

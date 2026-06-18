@@ -24,6 +24,7 @@ class MetadataRecordResponse(BaseModel):
     producer: str | None
     pdf_version: str | None
     interesting: bool = False
+    interesting_reason: str | None = None
     # Submission context
     source_url: str | None = None
     submission_mode: str | None = None

@@ -93,10 +93,14 @@ async def process_one_crawl_file(
     pdf_mode: bool | None,
     deduplicate: bool,
     session_factory,
+    active_filters=None,
 ) -> str:
     """
     Process a single file received from the streaming crawl queue.
     Returns "processed", "skipped", or "error".
+
+    active_filters: a preloaded FilterSet (loaded once per crawl task) used to auto-tag
+    matching metadata as interesting.
     """
     from app.utils.helpers import sha256_file
 
@@ -142,6 +146,7 @@ async def process_one_crawl_file(
                 source_url=source_url,
                 http_etag=etag,
                 http_last_modified=last_modified,
+                active_filters=active_filters,
             )
             await db.commit()
         logger.info(

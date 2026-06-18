@@ -29,7 +29,7 @@
   {% include "tasks/_progress.html" %}
 
   <div class="task-meta">
-    <span>Project: <strong>{{ task.project_id }}</strong></span>
+    <span>Project: <strong>{{ task.project_id if task.project_id else 'All / —' }}</strong></span>
     <span>Created: <strong>{{ task.created_at[:19] | replace('T', ' ') }}</strong></span>
     {% if task.started_at %}
     <span>Started: <strong>{{ task.started_at[:19] | replace('T', ' ') }}</strong></span>

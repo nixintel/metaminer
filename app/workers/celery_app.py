@@ -18,6 +18,7 @@ celery_app = Celery(
         "app.workers.crawl_tasks",
         "app.workers.telegram_tasks",
         "app.workers.maintenance_tasks",
+        "app.workers.filter_tasks",
     ],
 )
 
@@ -49,6 +50,7 @@ celery_app.conf.update(
     # Explicit routing so task dispatch never relies on caller remembering the queue name
     task_routes={
         "metaminer.manual_task":                            {"queue": "manual"},
+        "metaminer.filter_backfill":                        {"queue": "manual"},
         "metaminer.crawl_task":                             {"queue": "crawl"},
         "metaminer.telegram_task":                          {"queue": "telegram"},
         "metaminer.purge_old_logs":                         {"queue": "maintenance"},

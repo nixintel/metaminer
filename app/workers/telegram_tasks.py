@@ -87,6 +87,11 @@ def run_telegram_task(
                 task.started_at = datetime.now(timezone.utc)
                 await db.commit()
 
+            # Load active auto-tagging filters once for the whole task (project + globals).
+            from app.services.filter_service import load_active_filters
+            async with SessionLocal() as db:
+                active_filters = await load_active_filters(db, project_id)
+
             # --- Credential and session checks ---
             async with SessionLocal() as db:
                 creds = await get_credentials(db)
@@ -179,6 +184,7 @@ def run_telegram_task(
                             task_id=task_id,
                             submission_mode="telegram",
                             source_url=source_url,
+                            active_filters=active_filters,
                         )
 
                     if result["skipped_duplicate"]:
